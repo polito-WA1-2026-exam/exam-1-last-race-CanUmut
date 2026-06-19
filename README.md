@@ -5,8 +5,9 @@
 
 - Route `/`: public landing page with the game instructions. Anonymous visitors can only access this page and the login page.
 - Route `/login`: authentication form for registered users.
-- Route `/levels`: authenticated level selection page; Ankara is currently available while future medium and hard boards are shown as locked.
-- Route `/game`: authenticated game flow, including network study, timed route planning, execution events, and the final result.
+- Route `/hub`: immersive first-person 3D metro control room containing level selection, the permanent game table, wall timer, journey monitor, ranking board, and logout door.
+- Route `/levels`: legacy route redirected to the immersive `/hub` game.
+- Route `/game`: legacy route redirected to the immersive `/hub` game.
 - Route `/ranking`: authenticated general ranking based on each user's best score.
 
 ## API Server
@@ -50,9 +51,10 @@
 - `AppShell` (in `App.jsx`): application layout, navigation, authentication state, and protected routes.
 - `Home` (in `App.jsx`): public game presentation and instructions.
 - `Login` (in `App.jsx`): login form and authentication feedback.
+- `ControlRoom3D` (in `ControlRoom3D.jsx`): complete first-person simulation with WASD movement, mouse look, in-world setup/planning gameplay, timer audio, journey results, rankings, and logout.
 - `LevelSelection` (in `App.jsx`): board and difficulty selection before starting a game.
 - `GameProgress` (in `App.jsx`): shows the current Setup, Plan, Journey, or Result phase.
-- `GamePage` (in `App.jsx`): controls the complete multi-phase game state.
+- `GamePage` (in `App.jsx`): retained legacy implementation; active gameplay is handled inside `ControlRoom3D`.
 - `MetroMap` (in `App.jsx`): SVG underground network visualization.
 - `MissionBrief` (in `App.jsx`): setup phase with the complete network and rules.
 - `Planning` (in `App.jsx`): 90-second route-building phase with hidden connections.
