@@ -1,122 +1,526 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import './app.css';
 
-function App() {
-  const [count, setCount] = useState(0)
+const API = 'http://localhost:3001/api';
+const LINE_COLORS = {
+  'M1 Red': '#ff2638',
+  'M2 Turquoise': '#18e6d1',
+  'M3 Blue': '#334cff',
+  'M3 Blue Branch': '#35a7ff'
+};
+
+const STATION_POSITIONS = {
+  1: [12, 22], 2: [31, 22], 3: [51, 22], 4: [72, 22],
+  5: [31, 43], 6: [51, 43], 7: [72, 43], 8: [52, 64],
+  9: [31, 78], 10: [82, 58], 11: [82, 75], 12: [92, 88]
+};
+
+const stationName = (stations, id) =>
+  stations.find(station => station.id === Number(id))?.name || `Station ${id}`;
+
+function MetroMap({
+  map,
+  connectionsVisible = true,
+  startId,
+  destinationId,
+  route = [],
+  activeStationId,
+  availableStationIds = [],
+  visitedStationIds = [],
+  onStationSelect,
+  onStationHover
+}) {
+  const routeKeys = new Set(route.map(({ s1, s2 }) => [s1, s2].sort((a, b) => a - b).join('-')));
+  const availableIds = new Set(availableStationIds);
+  const visitedIds = new Set(visitedStationIds);
+  const interactive = typeof onStationSelect === 'function';
+
+  return (
+    <div className="map-shell">
+      <div className="map-grid" />
+      <svg className="metro-map" viewBox="0 0 100 100" role="img" aria-label="Underground network">
+        {connectionsVisible && map.lines.map(line =>
+          line.stationIds.slice(0, -1).map((stationId, index) => {
+            const nextId = line.stationIds[index + 1];
+            const [x1, y1] = STATION_POSITIONS[stationId];
+            const [x2, y2] = STATION_POSITIONS[nextId];
+            const key = [stationId, nextId].sort((a, b) => a - b).join('-');
+            return (
+              <line
+                key={`${line.id}-${stationId}-${nextId}`}
+                x1={x1} y1={y1} x2={x2} y2={y2}
+                className={routeKeys.has(key) ? 'map-line route-line' : 'map-line'}
+                stroke={routeKeys.has(key) ? '#ffffff' : LINE_COLORS[line.name]}
+              />
+            );
+          })
+        )}
+
+        {map.stations.map(station => {
+          const [x, y] = STATION_POSITIONS[station.id];
+          const isStart = station.id === startId;
+          const isDestination = station.id === destinationId;
+          const isActive = station.id === activeStationId;
+          const isAvailable = availableIds.has(station.id);
+          const isVisited = visitedIds.has(station.id);
+          const lineCount = map.lines.filter(line => line.stationIds.includes(station.id)).length;
+          return (
+            <g
+              key={station.id}
+              className={`station-node ${interactive ? 'interactive' : ''} ${isActive ? 'active' : ''} ${isAvailable ? 'available' : ''} ${isVisited ? 'visited' : ''} ${interactive && !isActive && !isAvailable ? 'disabled' : ''}`}
+              role={isAvailable ? 'button' : undefined}
+              tabIndex={isAvailable ? 0 : undefined}
+              onClick={() => isAvailable && onStationSelect(station.id)}
+              onKeyDown={event => {
+                if (isAvailable && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault();
+                  onStationSelect(station.id);
+                }
+              }}
+              onMouseEnter={() => isAvailable && onStationHover?.(station.id)}
+              onMouseLeave={() => onStationHover?.(null)}
+            >
+              {(isStart || isDestination) && <circle cx={x} cy={y} r="4.4" className="station-pulse" />}
+              {isAvailable && <circle cx={x} cy={y} r="4.8" className="available-ring" />}
+              <circle
+                cx={x} cy={y}
+                r={lineCount > 1 ? 2.4 : 1.8}
+                className={`station-dot ${isStart ? 'start' : ''} ${isDestination ? 'destination' : ''} ${isActive ? 'current' : ''}`}
+              />
+              <text
+                x={x}
+                y={y + 5.2}
+                textAnchor="middle"
+                className="station-label"
+              >
+                {station.name}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      {!connectionsVisible && (
+        <div className="signal-scramble">SIGNAL SCRAMBLED · LINES HIDDEN</div>
+      )}
+    </div>
+  );
+}
+
+function StatusLight({ online }) {
+  return <span className={`status-light ${online ? 'online' : 'offline'}`} />;
+}
+
+function SystemStatus() {
+  const [status, setStatus] = useState({ server: false, database: false, checking: true });
+
+  const checkStatus = async () => {
+    setStatus(previous => ({ ...previous, checking: true }));
+    try {
+      const { data } = await axios.get(`${API}/health`, { timeout: 3000 });
+      setStatus({
+        server: data.server === 'online',
+        database: data.database === 'online',
+        checking: false
+      });
+    } catch (error) {
+      setStatus({ server: Boolean(error.response), database: false, checking: false });
+    }
+  };
+
+  useEffect(() => {
+    checkStatus();
+    const interval = setInterval(checkStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <aside className="system-status" aria-live="polite">
+      <div className="status-title">
+        <span>CORE STATUS</span>
+        <button onClick={checkStatus} disabled={status.checking}>
+          {status.checking ? '···' : '↻'}
+        </button>
+      </div>
+      <div><StatusLight online={status.server} /> API Server</div>
+      <div><StatusLight online={status.database} /> SQLite Core</div>
+    </aside>
+  );
+}
+
+function Home() {
+  return (
+    <main className="page home-page">
+      <section className="hero-panel">
+        <div className="eyebrow">UNDERGROUND ROUTE PROTOCOL</div>
+        <h1>LAST <span>RACE</span></h1>
+        <p className="hero-copy">
+          The metro map is visible only before the mission begins. Memorize the lines,
+          then rebuild a valid route before the 90-second signal window closes.
+        </p>
+        <div className="rules-grid">
+          <article><b>01</b><h3>Study</h3><p>Learn the network and interchange stations.</p></article>
+          <article><b>02</b><h3>Plan</h3><p>Connect the assigned start and destination.</p></article>
+          <article><b>03</b><h3>Survive</h3><p>Every stop triggers a random coin event.</p></article>
+        </div>
+        <Link className="primary-action" to="/login">ENTER THE NETWORK <span>→</span></Link>
+      </section>
+      <div className="hero-orb" aria-hidden="true"><div className="orb-core">LR</div></div>
+    </main>
+  );
+}
+
+function Login({ onLogin }) {
+  const [username, setUsername] = useState('user1');
+  const [password, setPassword] = useState('password1');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
+
+  const handleLogin = async event => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await axios.post(`${API}/login`, { username, password }, { withCredentials: true });
+      onLogin(response.data);
+      navigate('/game');
+    } catch {
+      setError('Access denied. Check your username and password.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="page centered-page">
+      <form className="glass-card login-card" onSubmit={handleLogin}>
+        <div className="eyebrow">OPERATOR AUTHENTICATION</div>
+        <h2>Access Terminal</h2>
+        <label>Operator ID<input value={username} onChange={e => setUsername(e.target.value)} required /></label>
+        <label>Passcode<input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
+        {error && <div className="error-message">{error}</div>}
+        <button className="primary-action" disabled={submitting}>
+          {submitting ? 'AUTHENTICATING…' : 'AUTHORIZE'}
+        </button>
+        <p className="demo-note">Demo access: user1 / password1</p>
+      </form>
+    </main>
+  );
+}
+
+function Ranking() {
+  const [ranks, setRanks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    axios.get(`${API}/ranking`, { withCredentials: true })
+      .then(response => setRanks(response.data))
+      .catch(() => setError('Ranking data could not be loaded.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <main className="page">
+      <section className="section-heading">
+        <div className="eyebrow">HALL OF OPERATORS</div>
+        <h2>Global Ranking</h2>
+      </section>
+      <div className="ranking-table glass-card">
+        {loading && <div className="ranking-state">LOADING RANKING...</div>}
+        {error && <div className="ranking-state ranking-error">{error}</div>}
+        {ranks.map((rank, index) => (
+          <div className="ranking-row" key={rank.username}>
+            <span className="rank-number">#{String(index + 1).padStart(2, '0')}</span>
+            <span className="rank-name">{rank.username}</span>
+            <span className="rank-score">{rank.best_score} <small>COINS</small></span>
+          </div>
+        ))}
+      </div>
+    </main>
+  );
+}
+
+function MissionBrief({ map, onStart }) {
+  return (
+    <main className="page game-page">
+      <section className="game-header">
+        <div><div className="eyebrow">PHASE 01 · RECONNAISSANCE</div><h2>Study the Network</h2></div>
+        <div className="coin-chip">STARTING BALANCE <b>20</b></div>
+      </section>
+      <div className="game-layout">
+        <MetroMap map={map} />
+        <aside className="mission-panel glass-card">
+          <h3>Mission Rules</h3>
+          <div className="mission-step"><b>1</b><span>Memorize line colors and interchange stations.</span></div>
+          <div className="mission-step"><b>2</b><span>The lines disappear when planning starts.</span></div>
+          <div className="mission-step"><b>3</b><span>Build a continuous route in under 90 seconds.</span></div>
+          <div className="line-legend">
+            {map.lines.map(line => (
+              <span key={line.id}><i style={{ background: LINE_COLORS[line.name] }} />{line.name}</span>
+            ))}
+          </div>
+          <button className="primary-action" onClick={onStart}>I'M READY <span>→</span></button>
+        </aside>
+      </div>
+    </main>
+  );
+}
+
+function Planning({ map, gameData, onSubmit }) {
+  const [route, setRoute] = useState([]);
+  const [timeLeft, setTimeLeft] = useState(90);
+  const [hoveredSegmentKey, setHoveredSegmentKey] = useState(null);
+  const submitted = useRef(false);
+
+  const routeWithDirection = useMemo(() => {
+    let current = gameData.startStationId;
+    return route.map(segment => {
+      const next = segment.s1 === current ? segment.s2 : segment.s1;
+      const directed = { ...segment, from: current, next };
+      current = next;
+      return directed;
+    });
+  }, [route, gameData.startStationId]);
+
+  const activeStation = routeWithDirection.at(-1)?.next ?? gameData.startStationId;
+  const usedKeys = new Set(route.map(({ s1, s2 }) => [s1, s2].sort((a, b) => a - b).join('-')));
+  const availableSegments = gameData.segments.filter(segment => {
+    const key = [segment.s1, segment.s2].sort((a, b) => a - b).join('-');
+    return !usedKeys.has(key) && (segment.s1 === activeStation || segment.s2 === activeStation);
+  });
+  const availableStationIds = availableSegments.map(segment =>
+    segment.s1 === activeStation ? segment.s2 : segment.s1
+  );
+  const visitedStationIds = [
+    gameData.startStationId,
+    ...routeWithDirection.map(segment => segment.next)
+  ];
+
+  const submit = () => {
+    if (submitted.current) return;
+    submitted.current = true;
+    onSubmit(route);
+  };
+
+  useEffect(() => {
+    if (timeLeft <= 0) {
+      submit();
+      return;
+    }
+    const timer = setTimeout(() => setTimeLeft(value => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [timeLeft]);
+
+  const chooseSegment = segment => {
+    const key = [segment.s1, segment.s2].sort((a, b) => a - b).join('-');
+    const touchesCurrent = segment.s1 === activeStation || segment.s2 === activeStation;
+    if (!usedKeys.has(key) && touchesCurrent) setRoute(previous => [...previous, segment]);
+  };
+
+  const chooseStation = stationId => {
+    const segment = availableSegments.find(item =>
+      item.s1 === stationId || item.s2 === stationId
+    );
+    if (segment) chooseSegment(segment);
+    setHoveredSegmentKey(null);
+  };
+
+  const hoverStation = stationId => {
+    setHoveredSegmentKey(
+      stationId ? [activeStation, stationId].sort((a, b) => a - b).join('-') : null
+    );
+  };
+
+  return (
+    <main className="page game-page">
+      <section className="game-header">
+        <div><div className="eyebrow">PHASE 02 · SIGNAL BLACKOUT</div><h2>Rebuild the Route</h2></div>
+        <div className={`timer ${timeLeft <= 20 ? 'danger' : ''}`}><small>TIME LEFT</small>{timeLeft}<span>s</span></div>
+      </section>
+      <div className="objective-bar">
+        <span><small>START</small>{stationName(map.stations, gameData.startStationId)}</span>
+        <i>→</i>
+        <span><small>DESTINATION</small>{stationName(map.stations, gameData.destinationStationId)}</span>
+      </div>
+      <div className="planning-layout">
+        <MetroMap
+          map={map}
+          connectionsVisible={false}
+          startId={gameData.startStationId}
+          destinationId={gameData.destinationStationId}
+          activeStationId={activeStation}
+          availableStationIds={availableStationIds}
+          visitedStationIds={visitedStationIds}
+          onStationSelect={chooseStation}
+          onStationHover={hoverStation}
+        />
+        <aside className="segments-panel glass-card">
+          <div className="panel-title"><h3>Available Segments</h3><span>Current: {stationName(map.stations, activeStation)}</span></div>
+          <div className="segments-list">
+            {gameData.segments.map(segment => {
+              const key = [segment.s1, segment.s2].sort((a, b) => a - b).join('-');
+              const used = usedKeys.has(key);
+              const available = segment.s1 === activeStation || segment.s2 === activeStation;
+              return (
+                <div
+                  key={key}
+                  className={`segment-button ${available && !used ? 'available' : ''} ${used ? 'used' : ''} ${hoveredSegmentKey === key ? 'map-hovered' : ''}`}
+                >
+                  <span>{stationName(map.stations, segment.s1)}</span>
+                  <i>—</i>
+                  <span>{stationName(map.stations, segment.s2)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+      </div>
+      <section className="route-console glass-card">
+        <div><small>YOUR ROUTE</small>
+          <div className="route-path">
+            <b>{stationName(map.stations, gameData.startStationId)}</b>
+            {routeWithDirection.map((segment, index) => (
+              <React.Fragment key={`${segment.from}-${segment.next}-${index}`}>
+                <i>→</i><b>{stationName(map.stations, segment.next)}</b>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div className="route-actions">
+          <button className="secondary-action" onClick={() => setRoute(previous => previous.slice(0, -1))} disabled={!route.length}>UNDO</button>
+          <button className="primary-action compact" onClick={submit} disabled={!route.length}>LOCK ROUTE</button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function Execution({ map, result, onAgain }) {
+  const [visibleSteps, setVisibleSteps] = useState(result.valid ? 1 : 0);
+
+  useEffect(() => {
+    if (!result.valid || visibleSteps >= result.steps.length) return;
+    const timer = setTimeout(() => setVisibleSteps(value => value + 1), 900);
+    return () => clearTimeout(timer);
+  }, [visibleSteps, result]);
+
+  if (!result.valid) {
+    return (
+      <main className="page centered-page">
+        <section className="result-card glass-card failure">
+          <div className="result-icon">×</div><div className="eyebrow">ROUTE REJECTED</div>
+          <h2>Signal Lost</h2><p>The route was incomplete or invalid. All 20 coins were lost.</p>
+          <strong className="final-score">0 <small>COINS</small></strong>
+          <button className="primary-action" onClick={onAgain}>TRY AGAIN</button>
+        </section>
+      </main>
+    );
+  }
+
+  const complete = visibleSteps >= result.steps.length;
+  return (
+    <main className="page game-page">
+      <section className="game-header">
+        <div><div className="eyebrow">PHASE 03 · LIVE EXECUTION</div><h2>Journey Events</h2></div>
+        <div className="coin-chip">FINAL BALANCE <b>{complete ? result.finalScore : '··'}</b></div>
+      </section>
+      <div className="execution-track">
+        {result.steps.slice(0, visibleSteps).map((step, index) => (
+          <article className="event-card glass-card" key={index}>
+            <span className="event-index">{String(index + 1).padStart(2, '0')}</span>
+            <div><small>{stationName(map.stations, step.segment.s1)} → {stationName(map.stations, step.segment.s2)}</small>
+              <h3>{step.event.description}</h3></div>
+            <strong className={step.event.effect >= 0 ? 'positive' : 'negative'}>
+              {step.event.effect > 0 ? '+' : ''}{step.event.effect}
+            </strong>
+            <b>{step.coins} coins</b>
+          </article>
+        ))}
+      </div>
+      {complete && (
+        <section className="result-banner">
+          <div><div className="eyebrow">MISSION COMPLETE</div><h2>{result.finalScore} COINS SECURED</h2></div>
+          <button className="primary-action compact" onClick={onAgain}>NEW MISSION</button>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function GamePage() {
+  const [phase, setPhase] = useState('loading');
+  const [map, setMap] = useState(null);
+  const [gameData, setGameData] = useState(null);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    axios.get(`${API}/map`, { withCredentials: true })
+      .then(response => { setMap(response.data); setPhase('brief'); });
+  }, []);
+
+  const startPlanning = async () => {
+    const response = await axios.get(`${API}/game/init`, { withCredentials: true });
+    setGameData(response.data);
+    setPhase('planning');
+  };
+
+  const submitRoute = async route => {
+    setPhase('validating');
+    const response = await axios.post(`${API}/game/validate`, { route }, { withCredentials: true });
+    setResult(response.data);
+    setPhase('execution');
+  };
+
+  if (!map || phase === 'loading' || phase === 'validating') {
+    return <main className="page centered-page"><div className="loader-ring" /><p className="loading-copy">{phase === 'validating' ? 'Validating route…' : 'Loading network…'}</p></main>;
+  }
+  if (phase === 'brief') return <MissionBrief map={map} onStart={startPlanning} />;
+  if (phase === 'planning') return <Planning map={map} gameData={gameData} onSubmit={submitRoute} />;
+  return <Execution map={map} result={result} onAgain={() => setPhase('brief')} />;
+}
+
+function AppShell() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axios.get(`${API}/check-login`, { withCredentials: true })
+      .then(response => setUser(response.data)).catch(() => setUser(null)).finally(() => setLoading(false));
+  }, []);
+
+  const logout = async () => {
+    await axios.post(`${API}/logout`, {}, { withCredentials: true });
+    setUser(null);
+  };
+
+  if (loading) return <main className="page centered-page"><div className="loader-ring" /></main>;
 
   return (
     <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+      <header className="topbar">
+        <Link className="brand" to="/"><span>LR</span> LAST RACE</Link>
+        <nav>
+          {user && <Link to="/game">MISSION</Link>}
+          {user && <Link to="/ranking">RANKING</Link>}
+        </nav>
+        <div className="operator">
+          {user ? <><span>OPERATOR <b>{user.username}</b></span><button onClick={logout}>LOGOUT</button></> : <Link to="/login">LOGIN</Link>}
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
+      </header>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={user ? <Navigate to="/game" /> : <Login onLogin={setUser} />} />
+        <Route path="/game" element={user ? <GamePage /> : <Navigate to="/login" />} />
+        <Route path="/ranking" element={user ? <Ranking /> : <Navigate to="/login" />} />
+      </Routes>
+      <SystemStatus />
     </>
-  )
+  );
 }
 
-export default App
+export default function App() {
+  return <BrowserRouter><AppShell /></BrowserRouter>;
+}
