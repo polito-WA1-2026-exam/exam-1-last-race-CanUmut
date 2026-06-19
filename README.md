@@ -5,6 +5,7 @@
 
 - Route `/`: public landing page with the game instructions. Anonymous visitors can only access this page and the login page.
 - Route `/login`: authentication form for registered users.
+- Route `/levels`: authenticated level selection page; Ankara is currently available while future medium and hard boards are shown as locked.
 - Route `/game`: authenticated game flow, including network study, timed route planning, execution events, and the final result.
 - Route `/ranking`: authenticated general ranking based on each user's best score.
 
@@ -30,7 +31,8 @@
   - Validates continuity, real network connections, line changes, repeated segments, and the session-stored start/destination.
   - For valid routes, applies one random event per segment, stores the score, and returns the execution steps and final score.
 - GET `/api/ranking`
-  - Authenticated endpoint returning every user's best score in descending order.
+  - Query parameter: `level`, one of `Ankara`, `Istanbul`, or `London`.
+  - Returns the best score of each user for the selected level.
 
 ## Database Tables
 
@@ -40,7 +42,7 @@
 - Table `line_stations` - ordered station membership for each line.
 - Table `connections` - valid adjacent station pairs and their line.
 - Table `events` - random journey event descriptions and coin effects.
-- Table `games` - completed games, scores, users, and timestamps.
+- Table `games` - completed games, scores, users, selected level, and timestamps.
 - Table `app_meta` - internal seed/network version metadata.
 
 ## Main React Components
@@ -48,6 +50,8 @@
 - `AppShell` (in `App.jsx`): application layout, navigation, authentication state, and protected routes.
 - `Home` (in `App.jsx`): public game presentation and instructions.
 - `Login` (in `App.jsx`): login form and authentication feedback.
+- `LevelSelection` (in `App.jsx`): board and difficulty selection before starting a game.
+- `GameProgress` (in `App.jsx`): shows the current Setup, Plan, Journey, or Result phase.
 - `GamePage` (in `App.jsx`): controls the complete multi-phase game state.
 - `MetroMap` (in `App.jsx`): SVG underground network visualization.
 - `MissionBrief` (in `App.jsx`): setup phase with the complete network and rules.

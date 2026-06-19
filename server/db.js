@@ -18,6 +18,7 @@ const get = (sql, params = []) => new Promise((resolve, reject) => {
 });
 
 const ANKARA_NETWORK_VERSION = 'ankara-compact-four-lines-v2';
+const EVENTS_VERSION = 'ankara-funny-events-en-v2';
 
 const stations = [
   [1, 'Kızılay'],
@@ -47,6 +48,29 @@ const network = {
   3: [2, 5, 8, 9],
   4: [4, 8, 7, 10, 11, 12]
 };
+
+const events = [
+  ['Quiet journey: absolutely nothing happened for once.', 0],
+  ['You got off at the wrong platform and had to run back.', -2],
+  ['A helpful passenger showed you a shortcut.', 1],
+  ['You found a forgotten coin under your seat.', 4],
+  ['The ticket inspector discovered your card had no balance.', -4],
+  ['The carriage musician played your favorite song.', 2],
+  ['The train doors closed right in front of you.', -1],
+  ['You returned a lost phone to its owner.', 3],
+  ['An old gentleman explained the entire history of Ankara transport.', 0],
+  ['You misunderstood the announcement and left one stop early.', -3],
+  ['You claimed an empty seat and finally got some rest.', 1],
+  ['A mysterious promotion added credit to your metro card.', 3],
+  ['Your earphones came out of your pocket tied in an impossible knot.', -1],
+  ['Your water bottle leaked inside your bag. A minor disaster.', -2],
+  ['The carriage arrived completely empty. An Ankara miracle!', 4],
+  ['A child defeated you in a metro-map challenge.', -1],
+  ['A security guard returned the coin you dropped.', 2],
+  ['Your phone lost signal, granting you five minutes of peace.', 1],
+  ['The passenger next to you started watching reels at full volume.', -3],
+  ['You found the Kızılay interchange correctly on your first attempt.', 4]
+];
 
 async function createTables() {
   await run(`CREATE TABLE IF NOT EXISTS users (
@@ -93,6 +117,16 @@ async function createTables() {
   )`);
 }
 
+async function migrateGamesTable() {
+  const columns = await new Promise((resolve, reject) => {
+    db.all('PRAGMA table_info(games)', [], (err, rows) => err ? reject(err) : resolve(rows));
+  });
+  if (!columns.some(column => column.name === 'level')) {
+    await run("ALTER TABLE games ADD COLUMN level TEXT NOT NULL DEFAULT 'Ankara'");
+  }
+  await run("UPDATE games SET level = 'Ankara' WHERE level IS NULL OR TRIM(level) = ''");
+}
+
 async function seedUsers() {
   const row = await get('SELECT COUNT(*) AS count FROM users');
   if (row.count > 0) return;
@@ -108,16 +142,24 @@ async function seedUsers() {
 }
 
 async function seedEvents() {
-  const row = await get('SELECT COUNT(*) AS count FROM events');
-  if (row.count > 0) return;
+  const version = await get("SELECT value FROM app_meta WHERE key = 'events_version'");
+  if (version?.value === EVENTS_VERSION) return;
 
-  const events = [
-    ['Sakin yolculuk', 0], ['Yanlış peron', -2], ['Yardımsever yolcu', 1],
-    ['Yerde jeton buldun', 4], ['Bilet kontrolü', -4], ['Müzisyen morali', 2],
-    ['Tren gecikmesi', -1], ['Kayıp eşya sahibine ulaştı', 3]
-  ];
-  for (const event of events) {
-    await run('INSERT INTO events (description, effect) VALUES (?, ?)', event);
+  await run('BEGIN TRANSACTION');
+  try {
+    await run('DELETE FROM events');
+    for (const event of events) {
+      await run('INSERT INTO events (description, effect) VALUES (?, ?)', event);
+    }
+    await run(
+      `INSERT INTO app_meta (key, value) VALUES ('events_version', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [EVENTS_VERSION]
+    );
+    await run('COMMIT');
+  } catch (err) {
+    await run('ROLLBACK');
+    throw err;
   }
 }
 
@@ -173,6 +215,7 @@ async function seedAnkaraNetwork() {
 
 export const dbReady = (async () => {
   await createTables();
+  await migrateGamesTable();
   await seedUsers();
   await seedEvents();
   await seedRanking();

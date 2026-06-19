@@ -3,6 +3,8 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate } from 'react
 import axios from 'axios';
 import './app.css';
 
+const Board3D = React.lazy(() => import('./Board3D.jsx'));
+
 const API = 'http://localhost:3001/api';
 const LINE_COLORS = {
   'M1 Red': '#ff2638',
@@ -32,79 +34,22 @@ function MetroMap({
   onStationSelect,
   onStationHover
 }) {
-  const routeKeys = new Set(route.map(({ s1, s2 }) => [s1, s2].sort((a, b) => a - b).join('-')));
-  const availableIds = new Set(availableStationIds);
-  const visitedIds = new Set(visitedStationIds);
-  const interactive = typeof onStationSelect === 'function';
-
   return (
-    <div className="map-shell">
-      <div className="map-grid" />
-      <svg className="metro-map" viewBox="0 0 100 100" role="img" aria-label="Underground network">
-        {connectionsVisible && map.lines.map(line =>
-          line.stationIds.slice(0, -1).map((stationId, index) => {
-            const nextId = line.stationIds[index + 1];
-            const [x1, y1] = STATION_POSITIONS[stationId];
-            const [x2, y2] = STATION_POSITIONS[nextId];
-            const key = [stationId, nextId].sort((a, b) => a - b).join('-');
-            return (
-              <line
-                key={`${line.id}-${stationId}-${nextId}`}
-                x1={x1} y1={y1} x2={x2} y2={y2}
-                className={routeKeys.has(key) ? 'map-line route-line' : 'map-line'}
-                stroke={routeKeys.has(key) ? '#ffffff' : LINE_COLORS[line.name]}
-              />
-            );
-          })
-        )}
-
-        {map.stations.map(station => {
-          const [x, y] = STATION_POSITIONS[station.id];
-          const isStart = station.id === startId;
-          const isDestination = station.id === destinationId;
-          const isActive = station.id === activeStationId;
-          const isAvailable = availableIds.has(station.id);
-          const isVisited = visitedIds.has(station.id);
-          const lineCount = map.lines.filter(line => line.stationIds.includes(station.id)).length;
-          return (
-            <g
-              key={station.id}
-              className={`station-node ${interactive ? 'interactive' : ''} ${isActive ? 'active' : ''} ${isAvailable ? 'available' : ''} ${isVisited ? 'visited' : ''} ${interactive && !isActive && !isAvailable ? 'disabled' : ''}`}
-              role={isAvailable ? 'button' : undefined}
-              tabIndex={isAvailable ? 0 : undefined}
-              onClick={() => isAvailable && onStationSelect(station.id)}
-              onKeyDown={event => {
-                if (isAvailable && (event.key === 'Enter' || event.key === ' ')) {
-                  event.preventDefault();
-                  onStationSelect(station.id);
-                }
-              }}
-              onMouseEnter={() => isAvailable && onStationHover?.(station.id)}
-              onMouseLeave={() => onStationHover?.(null)}
-            >
-              {(isStart || isDestination) && <circle cx={x} cy={y} r="4.4" className="station-pulse" />}
-              {isAvailable && <circle cx={x} cy={y} r="4.8" className="available-ring" />}
-              <circle
-                cx={x} cy={y}
-                r={lineCount > 1 ? 2.4 : 1.8}
-                className={`station-dot ${isStart ? 'start' : ''} ${isDestination ? 'destination' : ''} ${isActive ? 'current' : ''}`}
-              />
-              <text
-                x={x}
-                y={y + 5.2}
-                textAnchor="middle"
-                className="station-label"
-              >
-                {station.name}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      {!connectionsVisible && (
-        <div className="signal-scramble">SIGNAL SCRAMBLED · LINES HIDDEN</div>
-      )}
-    </div>
+    <React.Suspense fallback={<div className="board-loading">Setting up the board...</div>}>
+      <Board3D
+        key={`${connectionsVisible ? 'setup' : 'planning'}-${startId ?? 'none'}-${destinationId ?? 'none'}`}
+        map={map}
+        connectionsVisible={connectionsVisible}
+        startId={startId}
+        destinationId={destinationId}
+        route={route}
+        activeStationId={activeStationId}
+        availableStationIds={availableStationIds}
+        visitedStationIds={visitedStationIds}
+        onStationSelect={onStationSelect}
+        onStationHover={onStationHover}
+      />
+    </React.Suspense>
   );
 }
 
@@ -149,7 +94,7 @@ function SystemStatus() {
   );
 }
 
-function Home() {
+function Home({ user }) {
   return (
     <main className="page home-page">
       <section className="hero-panel">
@@ -164,7 +109,9 @@ function Home() {
           <article><b>02</b><h3>Plan</h3><p>Connect the assigned start and destination.</p></article>
           <article><b>03</b><h3>Survive</h3><p>Every stop triggers a random coin event.</p></article>
         </div>
-        <Link className="primary-action" to="/login">ENTER THE NETWORK <span>→</span></Link>
+        <Link className="primary-action" to={user ? '/levels' : '/login'}>
+          {user ? 'PLAY' : 'LOGIN TO PLAY'} <span>→</span>
+        </Link>
       </section>
       <div className="hero-orb" aria-hidden="true"><div className="orb-core">LR</div></div>
     </main>
@@ -185,7 +132,7 @@ function Login({ onLogin }) {
     try {
       const response = await axios.post(`${API}/login`, { username, password }, { withCredentials: true });
       onLogin(response.data);
-      navigate('/game');
+      navigate('/levels');
     } catch {
       setError('Access denied. Check your username and password.');
     } finally {
@@ -210,17 +157,92 @@ function Login({ onLogin }) {
   );
 }
 
+function LevelSelection() {
+  return (
+    <main className="page level-page">
+      <section className="section-heading level-heading">
+        <div className="eyebrow">CHOOSE YOUR BOARD</div>
+        <h2>Select a Level</h2>
+        <p>Each board has a different network size, memory challenge, and route complexity.</p>
+      </section>
+      <section className="level-grid">
+        <article className="level-card available-level">
+          <div className="level-card-top">
+            <span className="level-number">01</span>
+            <span className="difficulty easy">EASY</span>
+          </div>
+          <div className="level-map-mark">ANK</div>
+          <h3>Ankara</h3>
+          <p>A compact network designed to teach the route-building rules.</p>
+          <ul>
+            <li>12 stations</li>
+            <li>4 colored lines</li>
+            <li>90 seconds</li>
+          </ul>
+          <Link className="primary-action level-play" to="/game">PLAY ANKARA <span>→</span></Link>
+        </article>
+
+        <article className="level-card locked-level">
+          <div className="level-card-top">
+            <span className="level-number">02</span>
+            <span className="difficulty medium">MEDIUM</span>
+          </div>
+          <div className="level-map-mark">IST</div>
+          <h3>Istanbul</h3>
+          <p>A larger network with more transfers and longer routes.</p>
+          <span className="coming-soon">COMING SOON</span>
+        </article>
+
+        <article className="level-card locked-level">
+          <div className="level-card-top">
+            <span className="level-number">03</span>
+            <span className="difficulty hard">HARD</span>
+          </div>
+          <div className="level-map-mark">LDN</div>
+          <h3>London</h3>
+          <p>A dense underground maze for experienced route planners.</p>
+          <span className="coming-soon">COMING SOON</span>
+        </article>
+      </section>
+    </main>
+  );
+}
+
+function GameProgress({ current }) {
+  const steps = ['Setup', 'Plan', 'Journey', 'Result'];
+  return (
+    <ol className="game-progress" aria-label="Game progress">
+      {steps.map((step, index) => (
+        <li
+          key={step}
+          className={`${index === current ? 'current' : ''} ${index < current ? 'complete' : ''}`}
+        >
+          <span>{index < current ? '✓' : index + 1}</span>
+          <b>{step}</b>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function Ranking() {
+  const levels = ['Ankara', 'Istanbul', 'London'];
+  const [selectedLevel, setSelectedLevel] = useState('Ankara');
   const [ranks, setRanks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    axios.get(`${API}/ranking`, { withCredentials: true })
-      .then(response => setRanks(response.data))
+    setLoading(true);
+    setError('');
+    axios.get(`${API}/ranking`, {
+      params: { level: selectedLevel },
+      withCredentials: true
+    })
+      .then(response => setRanks(response.data.rankings))
       .catch(() => setError('Ranking data could not be loaded.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedLevel]);
 
   return (
     <main className="page">
@@ -228,9 +250,26 @@ function Ranking() {
         <div className="eyebrow">HALL OF OPERATORS</div>
         <h2>Global Ranking</h2>
       </section>
+      <div className="ranking-tabs" role="tablist" aria-label="Level rankings">
+        {levels.map(level => (
+          <button
+            key={level}
+            type="button"
+            role="tab"
+            aria-selected={selectedLevel === level}
+            className={selectedLevel === level ? 'active' : ''}
+            onClick={() => setSelectedLevel(level)}
+          >
+            {level}
+          </button>
+        ))}
+      </div>
       <div className="ranking-table glass-card">
         {loading && <div className="ranking-state">LOADING RANKING...</div>}
         {error && <div className="ranking-state ranking-error">{error}</div>}
+        {!loading && !error && ranks.length === 0 && (
+          <div className="ranking-state">NO SCORES YET FOR {selectedLevel.toUpperCase()}</div>
+        )}
         {ranks.map((rank, index) => (
           <div className="ranking-row" key={rank.username}>
             <span className="rank-number">#{String(index + 1).padStart(2, '0')}</span>
@@ -246,6 +285,7 @@ function Ranking() {
 function MissionBrief({ map, onStart }) {
   return (
     <main className="page game-page">
+      <GameProgress current={0} />
       <section className="game-header">
         <div><div className="eyebrow">PHASE 01 · RECONNAISSANCE</div><h2>Study the Network</h2></div>
         <div className="coin-chip">STARTING BALANCE <b>20</b></div>
@@ -336,6 +376,7 @@ function Planning({ map, gameData, onSubmit }) {
 
   return (
     <main className="page game-page">
+      <GameProgress current={1} />
       <section className="game-header">
         <div><div className="eyebrow">PHASE 02 · SIGNAL BLACKOUT</div><h2>Rebuild the Route</h2></div>
         <div className={`timer ${timeLeft <= 20 ? 'danger' : ''}`}><small>TIME LEFT</small>{timeLeft}<span>s</span></div>
@@ -410,12 +451,15 @@ function Execution({ map, result, onAgain }) {
   if (!result.valid) {
     return (
       <main className="page centered-page">
-        <section className="result-card glass-card failure">
-          <div className="result-icon">×</div><div className="eyebrow">ROUTE REJECTED</div>
-          <h2>Signal Lost</h2><p>The route was incomplete or invalid. All 20 coins were lost.</p>
-          <strong className="final-score">0 <small>COINS</small></strong>
-          <button className="primary-action" onClick={onAgain}>TRY AGAIN</button>
-        </section>
+        <div className="result-page-wrap">
+          <GameProgress current={3} />
+          <section className="result-card glass-card failure">
+            <div className="result-icon">×</div><div className="eyebrow">ROUTE REJECTED</div>
+            <h2>Signal Lost</h2><p>The route was incomplete or invalid. All 20 coins were lost.</p>
+            <strong className="final-score">0 <small>COINS</small></strong>
+            <button className="primary-action" onClick={onAgain}>BACK TO LEVELS</button>
+          </section>
+        </div>
       </main>
     );
   }
@@ -423,6 +467,7 @@ function Execution({ map, result, onAgain }) {
   const complete = visibleSteps >= result.steps.length;
   return (
     <main className="page game-page">
+      <GameProgress current={complete ? 3 : 2} />
       <section className="game-header">
         <div><div className="eyebrow">PHASE 03 · LIVE EXECUTION</div><h2>Journey Events</h2></div>
         <div className="coin-chip">FINAL BALANCE <b>{complete ? result.finalScore : '··'}</b></div>
@@ -443,7 +488,7 @@ function Execution({ map, result, onAgain }) {
       {complete && (
         <section className="result-banner">
           <div><div className="eyebrow">MISSION COMPLETE</div><h2>{result.finalScore} COINS SECURED</h2></div>
-          <button className="primary-action compact" onClick={onAgain}>NEW MISSION</button>
+          <button className="primary-action compact" onClick={onAgain}>BACK TO LEVELS</button>
         </section>
       )}
     </main>
@@ -451,6 +496,7 @@ function Execution({ map, result, onAgain }) {
 }
 
 function GamePage() {
+  const navigate = useNavigate();
   const [phase, setPhase] = useState('loading');
   const [map, setMap] = useState(null);
   const [gameData, setGameData] = useState(null);
@@ -479,7 +525,7 @@ function GamePage() {
   }
   if (phase === 'brief') return <MissionBrief map={map} onStart={startPlanning} />;
   if (phase === 'planning') return <Planning map={map} gameData={gameData} onSubmit={submitRoute} />;
-  return <Execution map={map} result={result} onAgain={() => setPhase('brief')} />;
+  return <Execution map={map} result={result} onAgain={() => navigate('/levels')} />;
 }
 
 function AppShell() {
@@ -503,7 +549,7 @@ function AppShell() {
       <header className="topbar">
         <Link className="brand" to="/"><span>LR</span> LAST RACE</Link>
         <nav>
-          {user && <Link to="/game">MISSION</Link>}
+          {user && <Link to="/levels">PLAY</Link>}
           {user && <Link to="/ranking">RANKING</Link>}
         </nav>
         <div className="operator">
@@ -511,8 +557,9 @@ function AppShell() {
         </div>
       </header>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/login" element={user ? <Navigate to="/game" /> : <Login onLogin={setUser} />} />
+        <Route path="/" element={<Home user={user} />} />
+        <Route path="/login" element={user ? <Navigate to="/levels" /> : <Login onLogin={setUser} />} />
+        <Route path="/levels" element={user ? <LevelSelection /> : <Navigate to="/login" />} />
         <Route path="/game" element={user ? <GamePage /> : <Navigate to="/login" />} />
         <Route path="/ranking" element={user ? <Ranking /> : <Navigate to="/login" />} />
       </Routes>

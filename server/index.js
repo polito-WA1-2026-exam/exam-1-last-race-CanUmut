@@ -164,7 +164,7 @@ app.get('/api/game/init', isAuth, async (req, res) => {
       }
     });
 
-    req.session.game = { startStationId, destinationStationId };
+    req.session.game = { startStationId, destinationStationId, level: 'Ankara' };
 
     res.json({
       startStationId,
@@ -179,7 +179,7 @@ app.get('/api/game/init', isAuth, async (req, res) => {
 // Validate Route
 app.post('/api/game/validate', isAuth, async (req, res) => {
   const { route } = req.body;
-  const { startStationId, destinationStationId } = req.session.game || {};
+  const { startStationId, destinationStationId, level = 'Ankara' } = req.session.game || {};
 
   if (!startStationId || !destinationStationId) {
     return res.status(400).json({ error: "Start a game before submitting a route" });
@@ -252,8 +252,8 @@ app.post('/api/game/validate', isAuth, async (req, res) => {
     }
     const finalScore = Math.max(0, coins);
     db.run(
-      "INSERT INTO games (user_id, score) VALUES (?, ?)",
-      [req.user.id, finalScore],
+      "INSERT INTO games (user_id, score, level) VALUES (?, ?, ?)",
+      [req.user.id, finalScore, level],
       function saveGame(err) {
         if (err) {
           console.error('Game score could not be saved:', err.message);
@@ -271,18 +271,33 @@ app.post('/api/game/validate', isAuth, async (req, res) => {
 
 // Ranking
 app.get('/api/ranking', isAuth, (req, res) => {
+  const allowedLevels = ['Ankara', 'Istanbul', 'London'];
+  const level = typeof req.query.level === 'string' ? req.query.level : 'Ankara';
+
+  if (!allowedLevels.includes(level)) {
+    return res.status(400).json({ error: 'Unknown level' });
+  }
+
   db.all(`
-    SELECT u.username, COALESCE(MAX(g.score), 0) AS best_score
+    SELECT
+      u.username,
+      best.score AS best_score
     FROM users u
-    LEFT JOIN games g ON g.user_id = u.id
-    GROUP BY u.id 
+    LEFT JOIN games best ON best.id = (
+      SELECT g.id
+      FROM games g
+      WHERE g.user_id = u.id AND g.level = ?
+      ORDER BY g.score DESC, g.timestamp ASC, g.id ASC
+      LIMIT 1
+    )
+    WHERE best.id IS NOT NULL
     ORDER BY best_score DESC, u.username ASC
-  `, [], (err, rows) => {
+  `, [level], (err, rows) => {
     if (err) {
       console.error('Ranking query failed:', err.message);
       return res.status(500).json({ error: 'Unable to load ranking' });
     }
-    res.json(rows);
+    res.json({ level, rankings: rows });
   });
 });
 
