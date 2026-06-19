@@ -779,13 +779,12 @@ function RoomScene(props) {
       </mesh>
       <mesh position={[0, 3.55, -5]} receiveShadow>
         <boxGeometry args={[11.9, 3.9, 0.08]} />
-        <meshPhysicalMaterial
+        <meshStandardMaterial
           color="#172b29"
-          roughness={0.18}
+          roughness={0.26}
           metalness={0.08}
           transparent
-          opacity={0.42}
-          transmission={0.22}
+          opacity={0.38}
         />
       </mesh>
       <mesh position={[0, 0.72, -5]} receiveShadow>
@@ -979,10 +978,12 @@ export default function ControlRoom3D({ onLogout }) {
   return (
     <main className="control-room fps-room">
       <Canvas
+        key={quality}
+        frameloop={paused ? 'demand' : 'always'}
         camera={{ position: [0, 2.25, 3.45], fov: 74 }}
-        dpr={1}
-        gl={{ antialias: true, powerPreference: 'high-performance', precision: 'highp' }}
-        performance={{ min: 0.65 }}
+        dpr={quality === 'quality' ? 1 : 0.82}
+        gl={{ antialias: quality === 'quality', powerPreference: 'high-performance', precision: 'highp' }}
+        performance={{ min: 0.55 }}
       >
         <RoomScene
           map={map}
@@ -1001,19 +1002,47 @@ export default function ControlRoom3D({ onLogout }) {
           onSelectStation={selectStation}
           onSubmit={submitRoute}
           onReset={resetShift}
-          onLogout={onLogout}
+          onLockChange={handleLockChange}
           setPrompt={setPrompt}
         />
       </Canvas>
 
-      {!entered && (
-        <button id="fps-enter" className="fps-enter">
-          <b>ENTER CONTROL ROOM</b>
+      {paused && (
+        <section className="pause-menu">
+          <div className="pause-logo">
+            <span>ANKARA METRO OPERATIONS</span>
+            <h1>LAST<br /><b>RACE</b></h1>
+          </div>
           <span>Click to capture mouse · WASD to move · ESC to release</span>
-        </button>
+          {!settingsOpen ? (
+            <div className="pause-actions">
+              <button className="pause-primary" onClick={() => window.dispatchEvent(new Event('last-race-continue'))}>CONTINUE</button>
+              <button onClick={() => setSettingsOpen(true)}>SETTINGS</button>
+              <button onClick={onLogout}>LOG OUT</button>
+              <small>ESC PAUSES THE SHIFT · PROGRESS IS KEPT</small>
+            </div>
+          ) : (
+            <div className="pause-settings">
+              <header><b>SETTINGS</b><button onClick={() => setSettingsOpen(false)}>BACK</button></header>
+              <label>
+                RENDER QUALITY
+                <span>
+                  <button className={quality === 'balanced' ? 'active' : ''} onClick={() => setQuality('balanced')}>BALANCED</button>
+                  <button className={quality === 'quality' ? 'active' : ''} onClick={() => setQuality('quality')}>HIGH</button>
+                </span>
+              </label>
+              <label>
+                TICK SOUND
+                <button className={soundEnabled ? 'active' : ''} onClick={() => setSoundEnabled(value => !value)}>
+                  {soundEnabled ? 'ON' : 'OFF'}
+                </button>
+              </label>
+            </div>
+          )}
+        </section>
       )}
-      <div className="fps-crosshair" aria-hidden="true" />
-      <div className="fps-prompt">{prompt || 'LOOK AROUND THE CONTROL ROOM'}</div>
+      {!paused && <div className="fps-crosshair" aria-hidden="true" />}
+      {!paused && <div className="fps-prompt">{prompt || (hasControlled.current ? 'LOOK AROUND THE DRIVER CABIN' : 'CLICK TO TAKE CONTROL')}</div>}
     </main>
   );
 }
