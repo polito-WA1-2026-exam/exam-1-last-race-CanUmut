@@ -20,7 +20,7 @@ const get = (sql, params = []) => new Promise((resolve, reject) => {
   db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
 });
 
-const NETWORK_VERSION = 'ankara-istanbul-london-levels-v3';
+const NETWORK_VERSION = 'ankara-istanbul-london-levels-v4';
 const EVENTS_VERSION = 'ankara-funny-events-en-v3';
 
 const ankaraStations = [
@@ -81,7 +81,7 @@ const istanbulLines = [
 ];
 
 const istanbulNetwork = {
-  101: [105, 104, 103, 102, 101, 115, 114],
+  101: [105, 104, 103, 102, 101, 114],
   102: [105, 106, 107, 108, 109],
   103: [110, 111, 113, 116],
   104: [112, 113, 116, 114],
@@ -124,14 +124,14 @@ const londonLines = [
 ];
 
 const londonNetwork = {
-  201: [218, 201, 202, 203, 204, 205, 206, 219],
-  202: [201, 202, 203, 214, 212],
-  203: [209, 208, 203, 215, 213],
-  204: [209, 208, 207, 205, 210, 211],
-  205: [202, 214, 212, 211, 220, 219],
-  206: [217, 216, 213, 214, 210],
-  207: [218, 201, 202, 207, 206, 210, 214, 213, 216, 217],
-  208: [217, 216, 215, 203, 204, 207]
+  201: [218, 201, 202, 203, 204, 205, 206],
+  202: [201, 214, 212],
+  203: [209, 203, 215, 213],
+  204: [208, 207, 205, 210, 211],
+  205: [214, 220, 219],
+  206: [217, 216, 213, 210],
+  207: [206, 210, 214],
+  208: [216, 207, 208]
 };
 
 const events = [

@@ -1172,6 +1172,10 @@ export default function ControlRoom3D({
     ));
   };
 
+  const undoSegment = () => {
+    setRoute(previous => previous.slice(0, -1));
+  };
+
   const resetShift = () => {
     setPhase('setup');
     setGameData(null);
@@ -1217,6 +1221,7 @@ export default function ControlRoom3D({
           timeLeft={timeLeft}
           onReady={startPlanning}
           onSelectSegment={selectSegment}
+          onUndoSegment={undoSegment}
           onSubmit={submitRoute}
           onReset={resetShift}
           onLockChange={handleLockChange}
@@ -1273,6 +1278,7 @@ export default function ControlRoom3D({
           timeLeft={timeLeft}
           onReady={startPlanning}
           onSelectSegment={selectSegment}
+          onUndoSegment={undoSegment}
           onSubmit={submitRoute}
           onReset={resetShift}
           onClose={closeGame}

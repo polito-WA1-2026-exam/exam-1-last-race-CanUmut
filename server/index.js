@@ -273,9 +273,12 @@ app.post('/api/game/validate', isAuth, async (req, res) => {
       }
       const next = s1 === current ? s2 : s1;
 
+      const levelRange = LEVELS[level];
       const segLines = (await dbAll(
-        "SELECT line_id FROM connections WHERE (station1=? AND station2=?) OR (station1=? AND station2=?)",
-        [s1, s2, s2, s1]
+        `SELECT line_id FROM connections
+         WHERE line_id BETWEEN ? AND ?
+           AND ((station1=? AND station2=?) OR (station1=? AND station2=?))`,
+        [levelRange.minLineId, levelRange.maxLineId, s1, s2, s2, s1]
       )).map(row => row.line_id);
 
       if (!segLines.length) {

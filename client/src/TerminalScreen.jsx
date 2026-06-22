@@ -50,6 +50,7 @@ export default function TerminalScreen({
   timeLeft,
   onReady,
   onSelectSegment,
+  onUndoSegment,
   onSubmit,
   onReset,
   onClose
@@ -157,7 +158,10 @@ export default function TerminalScreen({
                 </div>
                 <div className="terminal-segments-heading">
                   <span>ALL NETWORK SEGMENTS</span>
-                  <small>SELECTED {route.length}</small>
+                  <div>
+                    <small>SELECTED {route.length}</small>
+                    <button disabled={!route.length} onClick={onUndoSegment}>UNDO LAST</button>
+                  </div>
                 </div>
                 <div className="terminal-segments">
                   {gameData.segments.map(segment => {
