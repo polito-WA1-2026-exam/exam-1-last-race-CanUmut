@@ -7,7 +7,7 @@
 - `/login`: public main menu, game instructions, and operator authentication form.
 - `/hub`: protected first-person driver cabin with the in-world route terminal and ranking panel.
 - `/game`: protected full-screen 2D route terminal containing setup, planning, execution, and result phases for the selected level.
-- `/ranking`: protected full-screen Ankara ranking, opened from the ranking panel inside the cabin and closed with ESC.
+- `/ranking`: protected full-screen ranking with Global, Ankara, Istanbul, and London tabs.
 
 ## API Server
 
@@ -18,7 +18,7 @@
 - `GET /api/map?level=...` — returns the stations and ordered lines of the selected Ankara, Istanbul, or London network.
 - `GET /api/game/init?level=...` — creates a 90-second game on the selected level with server-selected stations and all shuffled segments.
 - `POST /api/game/validate` — body `{ route: [{ s1, s2 }] }`; validates time, continuity, connections, line changes, repeated segments, and destination.
-- `GET /api/ranking?level=...` — returns each user's best score for the requested level.
+- `GET /api/ranking?level=...` — returns each user's best score for one level. With `level=Overall`, it ranks every user-level personal best together.
 
 ## Database Tables
 
@@ -38,7 +38,8 @@
 - `CabinLayout` — keeps the active game mounted while switching between `/hub` and `/ranking`.
 - `ControlRoom3D` — first-person cabin, timer, persistent game state, pause menu, and interactive in-world panels.
 - `TerminalScreen` — full-screen 2D interface for Easy Ankara, Medium Istanbul, and Hard London.
-- `RankingPage` — full-screen ranking opened from the cabin and closed with ESC.
+- `GeneralRankingWall` — interactive in-cabin panel that opens the ranking interface.
+- `RankingPage` — full-screen ranking with Global and per-level tabs, closed with ESC.
 
 ## Screenshots
 

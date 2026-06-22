@@ -338,11 +338,36 @@ app.post('/api/game/validate', isAuth, async (req, res) => {
 
 // Ranking
 app.get('/api/ranking', isAuth, (req, res) => {
-  const allowedLevels = ['Ankara', 'Istanbul', 'London'];
+  const allowedLevels = ['Ankara', 'Istanbul', 'London', 'Overall'];
   const level = typeof req.query.level === 'string' ? req.query.level : 'Ankara';
 
   if (!allowedLevels.includes(level)) {
     return res.status(400).json({ error: 'Unknown level' });
+  }
+
+  if (level === 'Overall') {
+    return db.all(`
+      SELECT
+        u.username,
+        g.score AS best_score,
+        g.level AS best_level
+      FROM games g
+      JOIN users u ON u.id = g.user_id
+      WHERE g.id = (
+        SELECT best.id
+        FROM games best
+        WHERE best.user_id = g.user_id AND best.level = g.level
+        ORDER BY best.score DESC, best.timestamp ASC, best.id ASC
+        LIMIT 1
+      )
+      ORDER BY best_score DESC, u.username ASC, best_level ASC
+    `, [], (err, rows) => {
+      if (err) {
+        console.error('Overall ranking query failed:', err.message);
+        return res.status(500).json({ error: 'Unable to load overall ranking' });
+      }
+      res.json({ level, rankings: rows });
+    });
   }
 
   db.all(`

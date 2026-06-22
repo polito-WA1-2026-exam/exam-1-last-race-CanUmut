@@ -297,57 +297,56 @@ function WallClock({ phase, timeLeft }) {
   );
 }
 
-function RankingWall({ rankings, selectedLevel, setPrompt, onOpenRanking }) {
-  const texture = useMemo(() => createPanelTexture(900, 760, (context, width, height) => {
-    context.fillStyle = '#14231e';
+function GeneralRankingWall({ rankings, setPrompt, onOpenRanking }) {
+  const texture = useMemo(() => createPanelTexture(760, 560, (context, width, height) => {
+    context.fillStyle = '#101d19';
     context.fillRect(0, 0, width, height);
     context.strokeStyle = '#8a764c';
-    context.lineWidth = 22;
-    context.strokeRect(12, 12, width - 24, height - 24);
+    context.lineWidth = 18;
+    context.strokeRect(10, 10, width - 20, height - 20);
     context.fillStyle = '#d5bb63';
-    context.font = '700 28px "Courier New"';
-    context.fillText('EMPLOYEE OF THE MONTH', 65, 85);
+    context.font = '700 24px "Courier New"';
+    context.fillText('NETWORK-WIDE HONOURS', 48, 62);
     context.fillStyle = '#eef2ed';
-    context.font = '800 55px "Segoe UI"';
-    context.fillText(`${selectedLevel.toUpperCase()} CONTROL`, 65, 155);
-    rankings.slice(0, 5).forEach((rank, index) => {
-      const y = 245 + index * 92;
+    context.font = '800 43px "Segoe UI"';
+    context.fillText('GLOBAL RANKING', 48, 120);
+    rankings.slice(0, 3).forEach((rank, index) => {
+      const y = 205 + index * 88;
       context.strokeStyle = '#40534b';
       context.lineWidth = 2;
       context.beginPath();
-      context.moveTo(60, y - 42);
-      context.lineTo(width - 60, y - 42);
+      context.moveTo(48, y - 38);
+      context.lineTo(width - 48, y - 38);
       context.stroke();
       context.fillStyle = '#d5bb63';
-      context.font = '700 31px "Courier New"';
-      context.fillText(String(index + 1).padStart(2, '0'), 70, y);
+      context.font = '700 27px "Courier New"';
+      context.fillText(String(index + 1).padStart(2, '0'), 54, y);
       context.fillStyle = '#e7ede8';
-      context.font = '700 35px "Courier New"';
-      context.fillText(rank.username, 180, y);
+      context.font = '700 30px "Courier New"';
+      context.fillText(rank.username, 145, y);
+      context.fillStyle = '#7f998b';
+      context.font = '700 18px "Courier New"';
+      context.fillText(rank.best_level?.toUpperCase() || '', 145, y + 27);
       context.fillStyle = '#9dccaa';
+      context.font = '700 31px "Courier New"';
       context.textAlign = 'right';
-      context.fillText(String(rank.best_score), width - 75, y);
+      context.fillText(String(rank.best_score), width - 55, y);
       context.textAlign = 'left';
     });
-    if (!rankings.length) {
-      context.fillStyle = '#91a198';
-      context.font = '600 31px "Courier New"';
-      context.fillText('NO COMPLETED SHIFTS', 65, 270);
-    }
-  }), [rankings, selectedLevel]);
+  }), [rankings]);
 
   return (
     <CrosshairInteraction
-      position={[4.72, 1.48, -3.18]}
-      rotation={[-Math.PI / 3.15, 0, 0]}
-      prompt={`OPEN ${selectedLevel.toUpperCase()} RANKING`}
+      position={[6.62, 2.72, 0.68]}
+      rotation={[0, -Math.PI / 2, 0]}
+      prompt="OPEN GLOBAL RANKING"
       setPrompt={setPrompt}
       onActivate={onOpenRanking}
     >
-      <RoundedBox args={[2.65, 1.92, 0.14]} radius={0.08} castShadow>
-        <meshStandardMaterial color="#24332f" roughness={0.78} />
+      <RoundedBox args={[2.25, 1.66, 0.12]} radius={0.06} castShadow>
+        <meshStandardMaterial color="#23332d" roughness={0.8} />
       </RoundedBox>
-      <PanelPlane texture={texture} size={[2.43, 1.7]} position={[0, 0, 0.09]} />
+      <PanelPlane texture={texture} size={[2.06, 1.48]} position={[0, 0, 0.075]} />
     </CrosshairInteraction>
   );
 }
@@ -958,7 +957,7 @@ function RoomScene(props) {
       <WallClock phase={props.phase} timeLeft={props.timeLeft} />
       {props.map && <GameTable {...props} />}
       <LevelWall selectedLevel={props.selectedLevel} phase={props.phase} onSelectLevel={props.onSelectLevel} setPrompt={props.setPrompt} />
-      <RankingWall rankings={props.rankings} selectedLevel={props.selectedLevel} setPrompt={props.setPrompt} onOpenRanking={props.onOpenRanking} />
+      <GeneralRankingWall rankings={props.generalRankings} setPrompt={props.setPrompt} onOpenRanking={props.onOpenRanking} />
       <EventWall phase={props.phase} result={props.result} visibleSteps={props.visibleSteps} />
       <ExitDoor />
       <FirstPersonLook onLockChange={props.onLockChange} />
@@ -983,18 +982,52 @@ function playTick(audioContextRef) {
   oscillator.stop(context.currentTime + 0.04);
 }
 
-function RankingPage({ rankings, selectedLevel, onClose }) {
+function RankingPage({ overallRankings, onClose }) {
+  const levels = ['Overall', 'Ankara', 'Istanbul', 'London'];
+  const [activeLevel, setActiveLevel] = useState('Overall');
+  const [rankings, setRankings] = useState(overallRankings);
+
+  useEffect(() => {
+    if (activeLevel === 'Overall') {
+      setRankings(overallRankings);
+      return;
+    }
+    fetch(`${API}/ranking?level=${activeLevel}`, { credentials: 'include' })
+      .then(response => response.json())
+      .then(data => setRankings(data.rankings || []))
+      .catch(() => setRankings([]));
+  }, [activeLevel, overallRankings]);
+
+  const overall = activeLevel === 'Overall';
   return (
     <section className="ranking-page">
       <article>
-        <header><span>ANKARA METRO OPERATIONS</span><button onClick={onClose}>ESC · CLOSE</button></header>
-        <h2>Global Ranking</h2>
-        <p>Each operator is listed with the best score achieved on the {selectedLevel} level.</p>
+        <header>
+          <span>{overall ? 'LAST RACE NETWORK OPERATIONS' : `${activeLevel.toUpperCase()} METRO OPERATIONS`}</span>
+          <button onClick={onClose}>ESC · CLOSE</button>
+        </header>
+        <nav className="ranking-tabs">
+          {levels.map(level => (
+            <button
+              key={level}
+              className={activeLevel === level ? 'active' : ''}
+              onClick={() => setActiveLevel(level)}
+            >
+              {level === 'Overall' ? 'GLOBAL' : level.toUpperCase()}
+            </button>
+          ))}
+        </nav>
+        <h2>{overall ? 'General Ranking' : `${activeLevel} Ranking`}</h2>
+        <p>
+          {overall
+            ? 'Every operator-level personal best is ranked together across the complete network.'
+            : `Each operator is listed with the best score achieved on the ${activeLevel} level.`}
+        </p>
         <div className="ranking-list">
           {rankings.length ? rankings.map((rank, index) => (
-            <div className="ranking-entry" key={rank.username}>
+            <div className="ranking-entry" key={`${rank.username}-${rank.best_level || activeLevel}`}>
               <span>#{String(index + 1).padStart(2, '0')}</span>
-              <b>{rank.username}</b>
+              <b>{rank.username}{overall && <small>{rank.best_level}</small>}</b>
               <strong>{rank.best_score} <small>COINS</small></strong>
             </div>
           )) : <div className="ranking-empty">NO COMPLETED SHIFTS</div>}
@@ -1014,7 +1047,7 @@ export default function ControlRoom3D({
   onCloseGame
 }) {
   const [map, setMap] = useState(null);
-  const [rankings, setRankings] = useState([]);
+  const [generalRankings, setGeneralRankings] = useState([]);
   const [selectedLevel, setSelectedLevel] = useState('Ankara');
   const [phase, setPhase] = useState('setup');
   const [gameData, setGameData] = useState(null);
@@ -1032,11 +1065,11 @@ export default function ControlRoom3D({
   const hasControlled = useRef(false);
   const overlayOpening = useRef(false);
 
-  const loadRanking = () =>
-    fetch(`${API}/ranking?level=${selectedLevel}`, { credentials: 'include' })
+  const loadGeneralRanking = () =>
+    fetch(`${API}/ranking?level=Overall`, { credentials: 'include' })
       .then(response => response.json())
-      .then(data => setRankings(data.rankings || []))
-      .catch(() => setRankings([]));
+      .then(data => setGeneralRankings(data.rankings || []))
+      .catch(() => setGeneralRankings([]));
 
   useEffect(() => {
     fetch(`${API}/map?level=${selectedLevel}`, { credentials: 'include' })
@@ -1045,8 +1078,8 @@ export default function ControlRoom3D({
       .catch(() => setMap(null));
   }, [selectedLevel]);
   useEffect(() => {
-    loadRanking();
-  }, [selectedLevel]);
+    loadGeneralRanking();
+  }, []);
   const handleLockChange = React.useCallback(locked => {
     if (locked) {
       hasControlled.current = true;
@@ -1138,7 +1171,7 @@ export default function ControlRoom3D({
     if (visibleSteps >= result.steps.length) {
       const timer = setTimeout(() => {
         setPhase('result');
-        loadRanking();
+        loadGeneralRanking();
       }, 900);
       return () => clearTimeout(timer);
     }
@@ -1210,7 +1243,7 @@ export default function ControlRoom3D({
       >
         <RoomScene
           map={map}
-          rankings={rankings}
+          generalRankings={generalRankings}
           selectedLevel={selectedLevel}
           onSelectLevel={selectLevel}
           phase={phase}
@@ -1284,7 +1317,7 @@ export default function ControlRoom3D({
           onClose={closeGame}
         />
       )}
-      {rankingOpen && <RankingPage rankings={rankings} selectedLevel={selectedLevel} onClose={closeRanking} />}
+      {rankingOpen && <RankingPage overallRankings={generalRankings} onClose={closeRanking} />}
     </main>
   );
 }
