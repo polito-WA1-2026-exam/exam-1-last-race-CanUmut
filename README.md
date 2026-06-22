@@ -3,71 +3,52 @@
 
 ## React Client Application Routes
 
-- Route `/`: public landing page with the game instructions. Anonymous visitors can only access this page and the login page.
-- Route `/login`: authentication form for registered users.
-- Route `/hub`: immersive first-person 3D metro control room containing level selection, the permanent game table, wall timer, journey monitor, ranking board, and logout door.
-- Route `/levels`: legacy route redirected to the immersive `/hub` game.
-- Route `/game`: legacy route redirected to the immersive `/hub` game.
-- Route `/ranking`: authenticated general ranking based on each user's best score.
+- `/`: redirects anonymous users to the public main menu and authenticated users to the driver cabin.
+- `/login`: public main menu, game instructions, and operator authentication form.
+- `/hub`: protected first-person driver cabin with the in-world route terminal and ranking panel.
+- `/game`: protected full-screen 2D route terminal containing setup, planning, execution, and result phases for the selected level.
+- `/ranking`: protected full-screen Ankara ranking, opened from the ranking panel inside the cabin and closed with ESC.
 
 ## API Server
 
-- GET `/api/health`
-  - Public diagnostic endpoint that checks whether the Express server and SQLite database are available.
-  - Returns the server state, database state, and check timestamp.
-- POST `/api/login`
-  - Body: `{ "username": string, "password": string }`.
-  - Authenticates with Passport Local Strategy and creates a session cookie.
-- POST `/api/logout`
-  - Ends the current authenticated session.
-- GET `/api/check-login`
-  - Returns the authenticated user's id and username, or HTTP 401.
-- GET `/api/map`
-  - Authenticated endpoint returning station data and ordered station ids for each line.
-- GET `/api/game/init`
-  - Authenticated endpoint that randomly selects a reachable start/destination pair at least three segments apart.
-  - Returns the assigned station ids and the shuffled list of available network segments.
-- POST `/api/game/validate`
-  - Body: `{ "route": [{ "s1": number, "s2": number }] }`.
-  - Validates continuity, real network connections, line changes, repeated segments, and the session-stored start/destination.
-  - For valid routes, applies one random event per segment, stores the score, and returns the execution steps and final score.
-- GET `/api/ranking`
-  - Query parameter: `level`, one of `Ankara`, `Istanbul`, or `London`.
-  - Returns the best score of each user for the selected level.
+- `POST /api/login` — body `{ username, password }`; authenticates through Passport and starts a session.
+- `POST /api/logout` — closes the authenticated session.
+- `GET /api/check-login` — returns the authentication state and, when logged in, `{ id, username }`.
+- `GET /api/health` — public server and SQLite availability check.
+- `GET /api/map?level=...` — returns the stations and ordered lines of the selected Ankara, Istanbul, or London network.
+- `GET /api/game/init?level=...` — creates a 90-second game on the selected level with server-selected stations and all shuffled segments.
+- `POST /api/game/validate` — body `{ route: [{ s1, s2 }] }`; validates time, continuity, connections, line changes, repeated segments, and destination.
+- `GET /api/ranking?level=...` — returns each user's best score for the requested level.
 
 ## Database Tables
 
-- Table `users` - registered users with salted bcrypt password hashes.
-- Table `stations` - the fixed underground station names.
-- Table `lines` - the four underground line definitions.
-- Table `line_stations` - ordered station membership for each line.
-- Table `connections` - valid adjacent station pairs and their line.
-- Table `events` - random journey event descriptions and coin effects.
-- Table `games` - completed games, scores, users, selected level, and timestamps.
-- Table `app_meta` - internal seed/network version metadata.
+- `users` — registered operators and salted bcrypt password hashes.
+- `stations` — unique station names for the Ankara, Istanbul, and London levels.
+- `lines` — unique underground lines for all three playable levels.
+- `line_stations` — ordered station membership for every line.
+- `connections` — valid adjacent station pairs and their line.
+- `events` — random event descriptions and effects from -4 to +4.
+- `games` — completed valid games, score, level, user, and timestamp.
+- `app_meta` — seed version metadata.
 
 ## Main React Components
 
-- `AppShell` (in `App.jsx`): application layout, navigation, authentication state, and protected routes.
-- `Home` (in `App.jsx`): public game presentation and instructions.
-- `Login` (in `App.jsx`): login form and authentication feedback.
-- `ControlRoom3D` (in `ControlRoom3D.jsx`): complete first-person simulation with WASD movement, mouse look, in-world setup/planning gameplay, timer audio, journey results, rankings, and logout.
-- `LevelSelection` (in `App.jsx`): board and difficulty selection before starting a game.
-- `GameProgress` (in `App.jsx`): shows the current Setup, Plan, Journey, or Result phase.
-- `GamePage` (in `App.jsx`): retained legacy implementation; active gameplay is handled inside `ControlRoom3D`.
-- `MetroMap` (in `App.jsx`): SVG underground network visualization.
-- `MissionBrief` (in `App.jsx`): setup phase with the complete network and rules.
-- `Planning` (in `App.jsx`): 90-second route-building phase with hidden connections.
-- `Execution` (in `App.jsx`): animated journey events and final score.
-- `Ranking` (in `App.jsx`): best-score leaderboard.
-- `SystemStatus` (in `App.jsx`): live API and SQLite health indicator.
+- `AppRoutes` — authentication state and protected/public route organization.
+- `MainMenu` — public instructions and login interface.
+- `CabinLayout` — keeps the active game mounted while switching between `/hub` and `/ranking`.
+- `ControlRoom3D` — first-person cabin, timer, persistent game state, pause menu, and interactive in-world panels.
+- `TerminalScreen` — full-screen 2D interface for Easy Ankara, Medium Istanbul, and Hard London.
+- `RankingPage` — full-screen ranking opened from the cabin and closed with ESC.
 
 ## Screenshots
 
-Two screenshots must be added before the final submission:
+### General Ranking
 
-- `img/ranking.png` - general ranking page.
-- `img/game.png` - application during a game.
+![General ranking](img/ranking.png)
+
+### During a Game
+
+![Game in progress](img/game.png)
 
 ## Users Credentials
 
@@ -77,4 +58,4 @@ Two screenshots must be added before the final submission:
 
 ## Use of AI Tools
 
-AI coding assistance (OpenAI Codex) was used to clarify the assignment, debug client/server integration, review the game rules, and assist with implementation and visual styling. The generated suggestions were adapted to the project structure and verified through production builds, API requests, SQLite queries, and manual browser testing.
+OpenAI Codex was used to clarify requirements, debug client/server integration, review API and database design, and assist with the 3D interface. Its output was adapted to the project and verified through production builds, API tests, SQLite queries, and manual browser testing.

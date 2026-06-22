@@ -56,6 +56,13 @@ const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
   db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
 });
 
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
+  db.run(sql, params, function callback(err) {
+    if (err) reject(err);
+    else resolve(this);
+  });
+});
+
 const segmentKey = (s1, s2) => [Number(s1), Number(s2)].sort((a, b) => a - b).join('-');
 
 const buildGraph = (connections) => {
@@ -89,6 +96,15 @@ const shortestDistance = (graph, start, destination) => {
 };
 
 const shuffle = (items) => [...items].sort(() => Math.random() - 0.5);
+const LEVELS = {
+  Ankara: { minLineId: 1, maxLineId: 99 },
+  Istanbul: { minLineId: 100, maxLineId: 199 },
+  London: { minLineId: 200, maxLineId: 299 }
+};
+const requestedLevel = req => {
+  const level = typeof req.query.level === 'string' ? req.query.level : 'Ankara';
+  return LEVELS[level] ? level : null;
+};
 
 // Public health check used by the client status panel.
 app.get('/api/health', (req, res) => {
@@ -111,10 +127,24 @@ app.get('/api/health', (req, res) => {
 // Get Map Data
 app.get('/api/map', isAuth, async (req, res) => {
   try {
+    const level = requestedLevel(req);
+    if (!level) return res.status(400).json({ error: 'Unknown level' });
+    const { minLineId, maxLineId } = LEVELS[level];
     const [lines, stations, lineStations] = await Promise.all([
-      dbAll("SELECT * FROM lines ORDER BY id"),
-      dbAll("SELECT * FROM stations ORDER BY id"),
-      dbAll("SELECT line_id, station_id, order_idx FROM line_stations ORDER BY line_id, order_idx")
+      dbAll("SELECT * FROM lines WHERE id BETWEEN ? AND ? ORDER BY id", [minLineId, maxLineId]),
+      dbAll(`
+        SELECT DISTINCT s.*
+        FROM stations s
+        JOIN line_stations ls ON ls.station_id = s.id
+        WHERE ls.line_id BETWEEN ? AND ?
+        ORDER BY s.id
+      `, [minLineId, maxLineId]),
+      dbAll(`
+        SELECT line_id, station_id, order_idx
+        FROM line_stations
+        WHERE line_id BETWEEN ? AND ?
+        ORDER BY line_id, order_idx
+      `, [minLineId, maxLineId])
     ]);
 
     const linesWithStations = lines.map(line => ({
@@ -124,7 +154,7 @@ app.get('/api/map', isAuth, async (req, res) => {
         .map(item => item.station_id)
     }));
 
-    res.json({ lines: linesWithStations, stations });
+    res.json({ level, lines: linesWithStations, stations });
   } catch (err) {
     res.status(500).json({ error: "Unable to load the network map" });
   }
@@ -133,7 +163,13 @@ app.get('/api/map', isAuth, async (req, res) => {
 // Start Game - Generate start/dest with min 3 segments
 app.get('/api/game/init', isAuth, async (req, res) => {
   try {
-    const connections = await dbAll("SELECT station1, station2, line_id FROM connections");
+    const level = requestedLevel(req);
+    if (!level) return res.status(400).json({ error: 'Unknown level' });
+    const { minLineId, maxLineId } = LEVELS[level];
+    const connections = await dbAll(
+      "SELECT station1, station2, line_id FROM connections WHERE line_id BETWEEN ? AND ?",
+      [minLineId, maxLineId]
+    );
     const graph = buildGraph(connections);
     const stationIds = [...graph.keys()];
     const validPairs = [];
@@ -164,12 +200,21 @@ app.get('/api/game/init', isAuth, async (req, res) => {
       }
     });
 
-    req.session.game = { startStationId, destinationStationId, level: 'Ankara' };
+    const startedAt = Date.now();
+    req.session.game = {
+      startStationId,
+      destinationStationId,
+      level,
+      startedAt,
+      deadlineAt: startedAt + 90_000
+    };
 
     res.json({
       startStationId,
       destinationStationId,
-      segments: shuffle([...uniqueSegments.values()])
+      segments: shuffle([...uniqueSegments.values()]),
+      durationSeconds: 90,
+      level
     });
   } catch (err) {
     res.status(500).json({ error: "Unable to start a new game" });
@@ -178,94 +223,113 @@ app.get('/api/game/init', isAuth, async (req, res) => {
 
 // Validate Route
 app.post('/api/game/validate', isAuth, async (req, res) => {
-  const { route } = req.body;
-  const { startStationId, destinationStationId, level = 'Ankara' } = req.session.game || {};
+  try {
+    const { route } = req.body;
+    const {
+      startStationId,
+      destinationStationId,
+      level = 'Ankara',
+      deadlineAt
+    } = req.session.game || {};
 
-  if (!startStationId || !destinationStationId) {
-    return res.status(400).json({ error: "Start a game before submitting a route" });
-  }
-
-  if (!Array.isArray(route) || route.length === 0) {
-    return res.json({ valid: false, finalScore: 0 });
-  }
-
-  let isValid = true;
-  let current = startStationId;
-  let possibleLines = null;
-  const usedSegments = new Set();
-
-  for (let i = 0; i < route.length; i++) {
-    const seg = route[i];
-    const s1 = Number(seg.s1);
-    const s2 = Number(seg.s2);
-    const key = segmentKey(s1, s2);
-
-    if (!Number.isInteger(s1) || !Number.isInteger(s2) || usedSegments.has(key)) {
-      isValid = false; break;
+    if (!startStationId || !destinationStationId || !deadlineAt) {
+      return res.status(400).json({ error: "Start a game before submitting a route" });
     }
-    usedSegments.add(key);
 
-    if (s1 !== current && s2 !== current) {
-      isValid = false; break;
+    if (Date.now() > deadlineAt + 2_000) {
+      delete req.session.game;
+      return res.json({ valid: false, finalScore: 0, timedOut: true });
     }
-    const next = (s1 === current) ? s2 : s1;
-    
-    // Fetch lines for this segment
-    const segLines = (await dbAll(
-      "SELECT line_id FROM connections WHERE (station1=? AND station2=?) OR (station1=? AND station2=?)",
-      [s1, s2, s2, s1]
-    )).map(row => row.line_id);
 
-    if (segLines.length === 0) { isValid = false; break; }
+    if (!Array.isArray(route) || route.length === 0 || route.length > 100) {
+      delete req.session.game;
+      return res.json({ valid: false, finalScore: 0 });
+    }
 
-    if (i === 0) {
-      possibleLines = segLines;
-    } else {
-      const intersection = possibleLines.filter(l => segLines.includes(l));
-      if (intersection.length > 0) {
-        possibleLines = intersection;
+    let isValid = true;
+    let current = startStationId;
+    let possibleLines = null;
+    const usedSegments = new Set();
+
+    for (const segment of route) {
+      if (!segment || typeof segment !== 'object') {
+        isValid = false;
+        break;
+      }
+
+      const s1 = Number(segment.s1);
+      const s2 = Number(segment.s2);
+      const key = segmentKey(s1, s2);
+
+      if (!Number.isInteger(s1) || !Number.isInteger(s2) || s1 === s2 || usedSegments.has(key)) {
+        isValid = false;
+        break;
+      }
+      usedSegments.add(key);
+
+      if (s1 !== current && s2 !== current) {
+        isValid = false;
+        break;
+      }
+      const next = s1 === current ? s2 : s1;
+
+      const segLines = (await dbAll(
+        "SELECT line_id FROM connections WHERE (station1=? AND station2=?) OR (station1=? AND station2=?)",
+        [s1, s2, s2, s1]
+      )).map(row => row.line_id);
+
+      if (!segLines.length) {
+        isValid = false;
+        break;
+      }
+
+      if (possibleLines === null) {
+        possibleLines = segLines;
       } else {
-        // Check interchange at current station
-        const stnLines = (await dbAll(
-          "SELECT line_id FROM line_stations WHERE station_id=?",
-          [current]
-        )).map(row => row.line_id);
-        const canChange = stnLines.some(l => possibleLines.includes(l)) && stnLines.some(l => segLines.includes(l));
-        if (canChange) {
-          possibleLines = segLines;
+        const sameLineOptions = possibleLines.filter(lineId => segLines.includes(lineId));
+        if (sameLineOptions.length) {
+          possibleLines = sameLineOptions;
         } else {
-          isValid = false; break;
+          const interchangeLines = (await dbAll(
+            "SELECT line_id FROM line_stations WHERE station_id=?",
+            [current]
+          )).map(row => row.line_id);
+          const canChange =
+            interchangeLines.some(lineId => possibleLines.includes(lineId)) &&
+            interchangeLines.some(lineId => segLines.includes(lineId));
+          if (!canChange) {
+            isValid = false;
+            break;
+          }
+          possibleLines = segLines;
         }
       }
+      current = next;
     }
-    current = next;
-  }
 
-  if (isValid && current === destinationStationId) {
-    // Generate events and compute score
+    if (!isValid || current !== destinationStationId) {
+      delete req.session.game;
+      return res.json({ valid: false, finalScore: 0 });
+    }
+
     let coins = 20;
     const steps = [];
-    for (const seg of route) {
-      const event = await dbGet("SELECT * FROM events ORDER BY RANDOM() LIMIT 1");
+    for (const segment of route) {
+      const event = await dbGet("SELECT id, description, effect FROM events ORDER BY RANDOM() LIMIT 1");
       coins += event.effect;
-      steps.push({ segment: seg, event, coins });
+      steps.push({ segment, event, coins });
     }
+
     const finalScore = Math.max(0, coins);
-    db.run(
+    const savedGame = await dbRun(
       "INSERT INTO games (user_id, score, level) VALUES (?, ?, ?)",
-      [req.user.id, finalScore, level],
-      function saveGame(err) {
-        if (err) {
-          console.error('Game score could not be saved:', err.message);
-          return res.status(500).json({ error: 'Game score could not be saved' });
-        }
-        delete req.session.game;
-        res.json({ valid: true, steps, finalScore, gameId: this.lastID });
-      }
+      [req.user.id, finalScore, level]
     );
-  } else {
     delete req.session.game;
-    res.json({ valid: false, finalScore: 0 });
+    res.json({ valid: true, steps, finalScore, gameId: savedGame.lastID });
+  } catch (err) {
+    console.error('Route validation failed:', err.message);
+    res.status(500).json({ error: 'Unable to validate the submitted route' });
   }
 });
 
@@ -305,9 +369,12 @@ app.get('/api/ranking', isAuth, (req, res) => {
 app.post('/api/login', passport.authenticate('local'), (req, res) => res.json({ id: req.user.id, username: req.user.username }));
 app.post('/api/logout', (req, res) => { req.logout(() => res.json({ ok: true })); });
 app.get('/api/check-login', (req, res) => {
-  if (req.isAuthenticated()) res.json({ id: req.user.id, username: req.user.username });
-  else res.status(401).json({ error: "Unauthorized" });
+  if (req.isAuthenticated()) {
+    res.json({ authenticated: true, id: req.user.id, username: req.user.username });
+  } else {
+    res.json({ authenticated: false });
+  }
 });
 
-const PORT = 3001;
+const PORT = Number(process.env.PORT) || 3001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

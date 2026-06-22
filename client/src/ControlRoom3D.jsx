@@ -204,6 +204,39 @@ function InteractionMesh({ children, onActivate, prompt, setPrompt, ...props }) 
   );
 }
 
+function CrosshairInteraction({ children, onActivate, prompt, setPrompt, ...props }) {
+  const group = useRef();
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const center = useMemo(() => new THREE.Vector2(0, 0), []);
+  const { camera } = useThree();
+  const hovered = useRef(false);
+
+  const isTargeted = () => {
+    if (!group.current) return false;
+    raycaster.setFromCamera(center, camera);
+    return raycaster.intersectObject(group.current, true).length > 0;
+  };
+
+  useFrame(() => {
+    if (!document.pointerLockElement) return;
+    const targeted = isTargeted();
+    if (targeted !== hovered.current) {
+      hovered.current = targeted;
+      setPrompt(targeted ? prompt : '');
+    }
+  });
+
+  useEffect(() => {
+    const activate = event => {
+      if (event.button === 0 && document.pointerLockElement && isTargeted()) onActivate?.();
+    };
+    window.addEventListener('mousedown', activate);
+    return () => window.removeEventListener('mousedown', activate);
+  });
+
+  return <group ref={group} {...props}>{children}</group>;
+}
+
 const DIGIT_SEGMENTS = {
   0: ['a', 'b', 'c', 'd', 'e', 'f'],
   1: ['b', 'c'],
@@ -264,7 +297,7 @@ function WallClock({ phase, timeLeft }) {
   );
 }
 
-function RankingWall({ rankings, setPrompt }) {
+function RankingWall({ rankings, selectedLevel, setPrompt, onOpenRanking }) {
   const texture = useMemo(() => createPanelTexture(900, 760, (context, width, height) => {
     context.fillStyle = '#14231e';
     context.fillRect(0, 0, width, height);
@@ -276,7 +309,7 @@ function RankingWall({ rankings, setPrompt }) {
     context.fillText('EMPLOYEE OF THE MONTH', 65, 85);
     context.fillStyle = '#eef2ed';
     context.font = '800 55px "Segoe UI"';
-    context.fillText('ANKARA CONTROL', 65, 155);
+    context.fillText(`${selectedLevel.toUpperCase()} CONTROL`, 65, 155);
     rankings.slice(0, 5).forEach((rank, index) => {
       const y = 245 + index * 92;
       context.strokeStyle = '#40534b';
@@ -301,28 +334,29 @@ function RankingWall({ rankings, setPrompt }) {
       context.font = '600 31px "Courier New"';
       context.fillText('NO COMPLETED SHIFTS', 65, 270);
     }
-  }), [rankings]);
+  }), [rankings, selectedLevel]);
 
   return (
-    <InteractionMesh
+    <CrosshairInteraction
       position={[4.72, 1.48, -3.18]}
       rotation={[-Math.PI / 3.15, 0, 0]}
-      prompt="ANKARA EMPLOYEE RANKING"
+      prompt={`OPEN ${selectedLevel.toUpperCase()} RANKING`}
       setPrompt={setPrompt}
+      onActivate={onOpenRanking}
     >
       <RoundedBox args={[2.65, 1.92, 0.14]} radius={0.08} castShadow>
         <meshStandardMaterial color="#24332f" roughness={0.78} />
       </RoundedBox>
       <PanelPlane texture={texture} size={[2.43, 1.7]} position={[0, 0, 0.09]} />
-    </InteractionMesh>
+    </CrosshairInteraction>
   );
 }
 
-function LevelWall({ selectedLevel, setSelectedLevel, setPrompt }) {
+function LevelWall({ selectedLevel, phase, onSelectLevel, setPrompt }) {
   const levels = [
     { name: 'Ankara', difficulty: 'EASY', online: true },
-    { name: 'Istanbul', difficulty: 'MEDIUM', online: false },
-    { name: 'London', difficulty: 'HARD', online: false }
+    { name: 'Istanbul', difficulty: 'MEDIUM', online: true },
+    { name: 'London', difficulty: 'HARD', online: true }
   ];
   const texture = useMemo(() => createPanelTexture(900, 760, (context, width) => {
     context.fillStyle = '#1b2b25';
@@ -356,18 +390,30 @@ function LevelWall({ selectedLevel, setSelectedLevel, setPrompt }) {
   }), [selectedLevel]);
 
   return (
-    <InteractionMesh
-      position={[-4.72, 1.48, -3.18]}
-      rotation={[-Math.PI / 3.15, 0, 0]}
-      onActivate={() => setSelectedLevel('Ankara')}
-      prompt="SELECT ANKARA NETWORK"
-      setPrompt={setPrompt}
-    >
+    <group position={[-4.72, 1.48, -3.18]} rotation={[-Math.PI / 3.15, 0, 0]}>
       <RoundedBox args={[2.65, 1.92, 0.14]} radius={0.08} castShadow>
         <meshStandardMaterial color="#2d4039" roughness={0.8} />
       </RoundedBox>
       <PanelPlane texture={texture} size={[2.43, 1.7]} position={[0, 0, 0.09]} />
-    </InteractionMesh>
+      {[
+        { level: 'Ankara', y: 0.28 },
+        { level: 'Istanbul', y: -0.02 },
+        { level: 'London', y: -0.31 }
+      ].map(item => (
+        <CrosshairInteraction
+          key={item.level}
+          position={[0, item.y, 0.14]}
+          onActivate={phase === 'setup' ? () => onSelectLevel(item.level) : undefined}
+          prompt={phase === 'setup' ? `SELECT ${item.level.toUpperCase()} NETWORK` : 'FINISH THE CURRENT SHIFT FIRST'}
+          setPrompt={setPrompt}
+        >
+          <mesh>
+            <planeGeometry args={[2.25, 0.25]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          </mesh>
+        </CrosshairInteraction>
+      ))}
+    </group>
   );
 }
 
@@ -470,6 +516,7 @@ function LegacyGameTable({
   activeStation,
   availableStationIds,
   result,
+  visibleSteps,
   onReady,
   onSelectStation,
   onSubmit,
@@ -572,21 +619,53 @@ function LegacyGameTable({
   );
 }
 
-function GameTable({
-  map,
-  selectedLevel,
-  phase,
-  gameData,
-  route,
-  activeStation,
-  availableStationIds,
-  result,
-  onReady,
-  onSelectStation,
-  onSubmit,
-  onReset,
-  setPrompt
-}) {
+function GameTable({ phase, route, setPrompt, onOpenGame }) {
+  const texture = useMemo(() => createPanelTexture(1100, 720, context => {
+    const gradient = context.createLinearGradient(0, 0, 0, 720);
+    gradient.addColorStop(0, '#071812');
+    gradient.addColorStop(1, '#0b2a1e');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 1100, 720);
+    context.strokeStyle = '#4b9369';
+    context.lineWidth = 10;
+    context.strokeRect(20, 20, 1060, 680);
+    context.fillStyle = '#d5bb5e';
+    context.font = '800 28px "Courier New"';
+    context.fillText('LAST RACE // ROUTE TERMINAL', 65, 82);
+    context.fillStyle = '#edf2ed';
+    context.font = '900 72px "Segoe UI"';
+    context.fillText(
+      phase === 'setup' ? 'BEGIN MISSION' :
+        phase === 'planning' ? 'ROUTE IN PROGRESS' :
+          phase === 'execution' ? 'JOURNEY ACTIVE' : 'SHIFT COMPLETE',
+      65,
+      205
+    );
+    context.fillStyle = '#8eaa99';
+    context.font = '600 29px "Courier New"';
+    context.fillText(
+      phase === 'setup'
+        ? 'Open the terminal to study the network and start your shift.'
+        : phase === 'planning'
+          ? `${route.length} SEGMENTS SELECTED // OPEN TO CONTINUE`
+          : phase === 'execution'
+            ? 'Journey events are being processed.'
+            : 'Open the terminal to review your result or begin a new shift.',
+      65,
+      275
+    );
+    context.fillStyle = '#9a762b';
+    context.fillRect(65, 500, 970, 125);
+    context.strokeStyle = '#efd36c';
+    context.lineWidth = 6;
+    context.strokeRect(65, 500, 970, 125);
+    context.fillStyle = '#07130e';
+    context.font = '900 42px "Courier New"';
+    context.textAlign = 'center';
+    context.fillText('OPEN ROUTE TERMINAL', 550, 565);
+    context.textAlign = 'left';
+  }), [phase, route.length]);
+
   return (
     <group>
       <RoundedBox args={[12.45, 0.28, 3.25]} radius={0.12} position={[0, 0.78, -2.45]} castShadow receiveShadow>
@@ -606,21 +685,14 @@ function GameTable({
         <RoundedBox args={[4.85, 3.22, 0.14]} radius={0.11} castShadow>
           <meshStandardMaterial color="#111b17" metalness={0.36} roughness={0.48} />
         </RoundedBox>
-        <TerminalScreen
-          map={map}
-          selectedLevel={selectedLevel}
-          phase={phase}
-          gameData={gameData}
-          route={route}
-          activeStation={activeStation}
-          availableStationIds={availableStationIds}
-          result={result}
-          onReady={onReady}
-          onSelectStation={onSelectStation}
-          onSubmit={onSubmit}
-          onReset={onReset}
+        <CrosshairInteraction
+          position={[0, 0, 0.11]}
+          prompt="OPEN ROUTE TERMINAL"
           setPrompt={setPrompt}
-        />
+          onActivate={onOpenGame}
+        >
+          <PanelPlane texture={texture} size={[4.7, 3.02]} position={[0, 0, 0]} />
+        </CrosshairInteraction>
       </group>
 
       <ConsoleClutter />
@@ -763,15 +835,75 @@ function ExitDoor() {
   );
 }
 
+function MountainView() {
+  const texture = useMemo(() => createPanelTexture(1600, 620, (context, width, height) => {
+    const sky = context.createLinearGradient(0, 0, 0, height);
+    sky.addColorStop(0, '#7694a2');
+    sky.addColorStop(0.58, '#b9c7bf');
+    sky.addColorStop(1, '#d7c69e');
+    context.fillStyle = sky;
+    context.fillRect(0, 0, width, height);
+
+    const sun = context.createRadialGradient(1210, 145, 8, 1210, 145, 150);
+    sun.addColorStop(0, 'rgba(255,239,178,.95)');
+    sun.addColorStop(0.25, 'rgba(246,218,147,.45)');
+    sun.addColorStop(1, 'rgba(246,218,147,0)');
+    context.fillStyle = sun;
+    context.fillRect(1030, 0, 360, 330);
+
+    const ridge = (points, color) => {
+      context.beginPath();
+      context.moveTo(0, height);
+      points.forEach(([x, y]) => context.lineTo(x, y));
+      context.lineTo(width, height);
+      context.closePath();
+      context.fillStyle = color;
+      context.fill();
+    };
+
+    ridge([
+      [0, 390], [150, 300], [270, 350], [420, 235], [570, 350],
+      [735, 255], [910, 350], [1080, 270], [1270, 360], [1430, 275], [1600, 350]
+    ], '#73827b');
+    ridge([
+      [0, 455], [170, 370], [310, 430], [500, 320], [690, 445],
+      [875, 345], [1040, 435], [1230, 335], [1400, 425], [1600, 350]
+    ], '#4f645a');
+    ridge([
+      [0, 520], [190, 460], [390, 500], [590, 405], [790, 505],
+      [980, 420], [1180, 500], [1380, 410], [1600, 480]
+    ], '#2e493d');
+
+    context.fillStyle = '#1d342b';
+    context.fillRect(0, 520, width, 100);
+    context.fillStyle = 'rgba(205,219,199,.34)';
+    for (let index = 0; index < 34; index += 1) {
+      const x = (index * 137) % width;
+      const y = 500 + (index % 4) * 16;
+      context.beginPath();
+      context.arc(x, y, 3 + (index % 3), 0, Math.PI * 2);
+      context.fill();
+    }
+  }), []);
+
+  return (
+    <mesh position={[0, 3.55, -5.35]}>
+      <planeGeometry args={[11.7, 3.75]} />
+      <meshBasicMaterial map={texture} toneMapped={false} />
+    </mesh>
+  );
+}
+
 function RoomScene(props) {
   useFirstPersonMovement();
   return (
     <>
       <color attach="background" args={['#101715']} />
       <fog attach="fog" args={['#101715', 10, 24]} />
-      <ambientLight intensity={0.82} />
-      <hemisphereLight args={['#b7c6ba', '#17201d', 1.15]} />
+      <ambientLight intensity={1.18} />
+      <hemisphereLight args={['#c9d3c7', '#25302b', 1.35]} />
       <directionalLight position={[-4, 8, 5]} intensity={1.7} color="#d8c997" />
+      <MountainView />
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[14, 11]} />
@@ -801,9 +933,14 @@ function RoomScene(props) {
           <meshStandardMaterial color="#283630" metalness={0.28} roughness={0.62} />
         </mesh>
       ))}
-      <mesh position={[0, 3.55, -5.35]}>
+      <mesh position={[0, 3.55, -5.18]}>
         <planeGeometry args={[11.7, 3.75]} />
-        <meshBasicMaterial color="#07110f" />
+        <meshBasicMaterial
+          color="#d7e2db"
+          transparent
+          opacity={0.035}
+          depthWrite={false}
+        />
       </mesh>
       <mesh position={[0, 3.0, -5.28]}>
         <planeGeometry args={[10.8, 0.035]} />
@@ -820,8 +957,8 @@ function RoomScene(props) {
 
       <WallClock phase={props.phase} timeLeft={props.timeLeft} />
       {props.map && <GameTable {...props} />}
-      <LevelWall selectedLevel={props.selectedLevel} setSelectedLevel={props.setSelectedLevel} setPrompt={props.setPrompt} />
-      <RankingWall rankings={props.rankings} setPrompt={props.setPrompt} />
+      <LevelWall selectedLevel={props.selectedLevel} phase={props.phase} onSelectLevel={props.onSelectLevel} setPrompt={props.setPrompt} />
+      <RankingWall rankings={props.rankings} selectedLevel={props.selectedLevel} setPrompt={props.setPrompt} onOpenRanking={props.onOpenRanking} />
       <EventWall phase={props.phase} result={props.result} visibleSteps={props.visibleSteps} />
       <ExitDoor />
       <FirstPersonLook onLockChange={props.onLockChange} />
@@ -846,7 +983,36 @@ function playTick(audioContextRef) {
   oscillator.stop(context.currentTime + 0.04);
 }
 
-export default function ControlRoom3D({ onLogout }) {
+function RankingPage({ rankings, selectedLevel, onClose }) {
+  return (
+    <section className="ranking-page">
+      <article>
+        <header><span>ANKARA METRO OPERATIONS</span><button onClick={onClose}>ESC · CLOSE</button></header>
+        <h2>Global Ranking</h2>
+        <p>Each operator is listed with the best score achieved on the {selectedLevel} level.</p>
+        <div className="ranking-list">
+          {rankings.length ? rankings.map((rank, index) => (
+            <div className="ranking-entry" key={rank.username}>
+              <span>#{String(index + 1).padStart(2, '0')}</span>
+              <b>{rank.username}</b>
+              <strong>{rank.best_score} <small>COINS</small></strong>
+            </div>
+          )) : <div className="ranking-empty">NO COMPLETED SHIFTS</div>}
+        </div>
+      </article>
+    </section>
+  );
+}
+
+export default function ControlRoom3D({
+  onLogout,
+  rankingOpen,
+  gameOpen,
+  onOpenRanking,
+  onCloseRanking,
+  onOpenGame,
+  onCloseGame
+}) {
   const [map, setMap] = useState(null);
   const [rankings, setRankings] = useState([]);
   const [selectedLevel, setSelectedLevel] = useState('Ankara');
@@ -864,26 +1030,7 @@ export default function ControlRoom3D({ onLogout }) {
   const audioContext = useRef(null);
   const submitted = useRef(false);
   const hasControlled = useRef(false);
-
-  const routeWithDirection = useMemo(() => {
-    if (!gameData) return [];
-    let current = gameData.startStationId;
-    return route.map(segment => {
-      const next = segment.s1 === current ? segment.s2 : segment.s1;
-      const directed = { ...segment, from: current, next };
-      current = next;
-      return directed;
-    });
-  }, [route, gameData]);
-  const activeStation = routeWithDirection.at(-1)?.next ?? gameData?.startStationId;
-  const usedKeys = new Set(route.map(segment => segmentKey(segment.s1, segment.s2)));
-  const availableSegments = gameData?.segments.filter(segment =>
-    !usedKeys.has(segmentKey(segment.s1, segment.s2)) &&
-    (segment.s1 === activeStation || segment.s2 === activeStation)
-  ) || [];
-  const availableStationIds = availableSegments.map(segment =>
-    segment.s1 === activeStation ? segment.s2 : segment.s1
-  );
+  const overlayOpening = useRef(false);
 
   const loadRanking = () =>
     fetch(`${API}/ranking?level=${selectedLevel}`, { credentials: 'include' })
@@ -892,8 +1039,11 @@ export default function ControlRoom3D({ onLogout }) {
       .catch(() => setRankings([]));
 
   useEffect(() => {
-    fetch(`${API}/map`, { credentials: 'include' }).then(response => response.json()).then(setMap);
-  }, []);
+    fetch(`${API}/map?level=${selectedLevel}`, { credentials: 'include' })
+      .then(response => response.json())
+      .then(setMap)
+      .catch(() => setMap(null));
+  }, [selectedLevel]);
   useEffect(() => {
     loadRanking();
   }, [selectedLevel]);
@@ -902,28 +1052,76 @@ export default function ControlRoom3D({ onLogout }) {
       hasControlled.current = true;
       setPaused(false);
       setSettingsOpen(false);
-    } else if (hasControlled.current) {
+    } else if (hasControlled.current && !overlayOpening.current) {
       setPaused(true);
     }
   }, []);
 
+  const openRanking = React.useCallback(() => {
+    overlayOpening.current = true;
+    if (document.pointerLockElement) document.exitPointerLock();
+    onOpenRanking();
+  }, [onOpenRanking]);
+
+  const closeRanking = React.useCallback(() => {
+    overlayOpening.current = false;
+    hasControlled.current = false;
+    onCloseRanking();
+  }, [onCloseRanking]);
+
+  const openGame = React.useCallback(() => {
+    overlayOpening.current = true;
+    if (document.pointerLockElement) document.exitPointerLock();
+    onOpenGame();
+  }, [onOpenGame]);
+
+  const closeGame = React.useCallback(() => {
+    overlayOpening.current = false;
+    hasControlled.current = false;
+    onCloseGame();
+  }, [onCloseGame]);
+
+  useEffect(() => {
+    if (!rankingOpen) return;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') closeRanking();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [rankingOpen, closeRanking]);
+
+  useEffect(() => {
+    if (!gameOpen) return;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') closeGame();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [gameOpen, closeGame]);
+
   const submitRoute = async () => {
     if (submitted.current || phase !== 'planning') return;
     submitted.current = true;
-    const response = await fetch(`${API}/game/validate`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ route })
-    });
-    const data = await response.json();
-    setResult(data);
-    setVisibleSteps(data.valid ? 1 : 0);
-    setPhase(data.valid ? 'execution' : 'result');
+    try {
+      const response = await fetch(`${API}/game/validate`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ route })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Route validation failed');
+      setResult(data);
+      setVisibleSteps(data.valid ? 1 : 0);
+      setPhase(data.valid ? 'execution' : 'result');
+    } catch (err) {
+      submitted.current = false;
+      setPrompt(err.message.toUpperCase());
+    }
   };
 
   useEffect(() => {
-    if (phase !== 'planning' || paused) return;
+    if (phase !== 'planning') return;
     if (timeLeft <= 0) {
       submitRoute();
       return;
@@ -933,7 +1131,7 @@ export default function ControlRoom3D({ onLogout }) {
       setTimeLeft(value => value - 1);
     }, 1000);
     return () => clearTimeout(timer);
-  }, [phase, timeLeft, paused, soundEnabled]);
+  }, [phase, timeLeft, soundEnabled]);
 
   useEffect(() => {
     if (phase !== 'execution' || !result?.valid || paused) return;
@@ -949,24 +1147,45 @@ export default function ControlRoom3D({ onLogout }) {
   }, [phase, visibleSteps, result, paused]);
 
   const startPlanning = async () => {
-    const response = await fetch(`${API}/game/init`, { credentials: 'include' });
-    const data = await response.json();
-    setGameData(data);
-    setRoute([]);
-    setResult(null);
-    setTimeLeft(90);
-    submitted.current = false;
-    setPhase('planning');
-    if (soundEnabled) playTick(audioContext);
+    try {
+      const response = await fetch(`${API}/game/init?level=${selectedLevel}`, { credentials: 'include' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to initialize mission');
+      setGameData(data);
+      setRoute([]);
+      setResult(null);
+      setTimeLeft(data.durationSeconds || 90);
+      submitted.current = false;
+      setPhase('planning');
+      if (soundEnabled) playTick(audioContext);
+    } catch (err) {
+      setPrompt(err.message.toUpperCase());
+    }
   };
 
-  const selectStation = stationId => {
-    const segment = availableSegments.find(item => item.s1 === stationId || item.s2 === stationId);
-    if (segment) setRoute(previous => [...previous, segment]);
+  const selectSegment = segment => {
+    const key = segmentKey(segment.s1, segment.s2);
+    setRoute(previous => (
+      previous.some(item => segmentKey(item.s1, item.s2) === key)
+        ? previous
+        : [...previous, segment]
+    ));
   };
 
   const resetShift = () => {
     setPhase('setup');
+    setGameData(null);
+    setRoute([]);
+    setResult(null);
+    setVisibleSteps(0);
+    setTimeLeft(90);
+    submitted.current = false;
+  };
+
+  const selectLevel = level => {
+    if (phase !== 'setup' || level === selectedLevel) return;
+    setSelectedLevel(level);
+    setMap(null);
     setGameData(null);
     setRoute([]);
     setResult(null);
@@ -989,31 +1208,30 @@ export default function ControlRoom3D({ onLogout }) {
           map={map}
           rankings={rankings}
           selectedLevel={selectedLevel}
-          setSelectedLevel={setSelectedLevel}
+          onSelectLevel={selectLevel}
           phase={phase}
           gameData={gameData}
           route={route}
-          activeStation={activeStation}
-          availableStationIds={availableStationIds}
           result={result}
           visibleSteps={visibleSteps}
           timeLeft={timeLeft}
           onReady={startPlanning}
-          onSelectStation={selectStation}
+          onSelectSegment={selectSegment}
           onSubmit={submitRoute}
           onReset={resetShift}
           onLockChange={handleLockChange}
+          onOpenRanking={openRanking}
+          onOpenGame={openGame}
           setPrompt={setPrompt}
         />
       </Canvas>
 
-      {paused && (
+      {paused && !rankingOpen && !gameOpen && (
         <section className="pause-menu">
           <div className="pause-logo">
             <span>ANKARA METRO OPERATIONS</span>
             <h1>LAST<br /><b>RACE</b></h1>
           </div>
-          <span>Click to capture mouse · WASD to move · ESC to release</span>
           {!settingsOpen ? (
             <div className="pause-actions">
               <button className="pause-primary" onClick={() => window.dispatchEvent(new Event('last-race-continue'))}>CONTINUE</button>
@@ -1041,8 +1259,26 @@ export default function ControlRoom3D({ onLogout }) {
           )}
         </section>
       )}
-      {!paused && <div className="fps-crosshair" aria-hidden="true" />}
-      {!paused && <div className="fps-prompt">{prompt || (hasControlled.current ? 'LOOK AROUND THE DRIVER CABIN' : 'CLICK TO TAKE CONTROL')}</div>}
+      {!paused && !rankingOpen && !gameOpen && <div className="fps-crosshair" aria-hidden="true" />}
+      {!paused && !rankingOpen && !gameOpen && <div className="fps-prompt">{prompt || (hasControlled.current ? 'LOOK AROUND THE DRIVER CABIN' : 'CLICK TO TAKE CONTROL')}</div>}
+      {gameOpen && map && (
+        <TerminalScreen
+          map={map}
+          selectedLevel={selectedLevel}
+          phase={phase}
+          gameData={gameData}
+          route={route}
+          result={result}
+          visibleSteps={visibleSteps}
+          timeLeft={timeLeft}
+          onReady={startPlanning}
+          onSelectSegment={selectSegment}
+          onSubmit={submitRoute}
+          onReset={resetShift}
+          onClose={closeGame}
+        />
+      )}
+      {rankingOpen && <RankingPage rankings={rankings} selectedLevel={selectedLevel} onClose={closeRanking} />}
     </main>
   );
 }

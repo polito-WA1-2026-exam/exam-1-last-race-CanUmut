@@ -3,7 +3,10 @@ import bcrypt from 'bcrypt';
 
 const db = new sqlite3.Database('./last_race.db', err => {
   if (err) console.error(err.message);
-  else console.log('Connected to the database.');
+  else {
+    db.run('PRAGMA foreign_keys = ON');
+    console.log('Connected to the database.');
+  }
 });
 
 const run = (sql, params = []) => new Promise((resolve, reject) => {
@@ -17,10 +20,10 @@ const get = (sql, params = []) => new Promise((resolve, reject) => {
   db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
 });
 
-const ANKARA_NETWORK_VERSION = 'ankara-compact-four-lines-v2';
-const EVENTS_VERSION = 'ankara-funny-events-en-v2';
+const NETWORK_VERSION = 'ankara-istanbul-london-levels-v3';
+const EVENTS_VERSION = 'ankara-funny-events-en-v3';
 
-const stations = [
+const ankaraStations = [
   [1, 'Kızılay'],
   [2, 'Batıkent'],
   [3, 'Sıhhiye'],
@@ -35,18 +38,100 @@ const stations = [
   [12, 'Koru']
 ];
 
-const lines = [
+const ankaraLines = [
   [1, 'M1 Red'],
   [2, 'M2 Turquoise'],
   [3, 'M3 Blue'],
   [4, 'M3 Blue Branch']
 ];
 
-const network = {
+const ankaraNetwork = {
   1: [1, 2, 3, 4],
   2: [1, 5, 6, 7],
   3: [2, 5, 8, 9],
   4: [4, 8, 7, 10, 11, 12]
+};
+
+const istanbulStations = [
+  [101, 'Taksim'],
+  [102, 'Şişhane'],
+  [103, 'Haliç'],
+  [104, 'Vezneciler'],
+  [105, 'Yenikapı'],
+  [106, 'Aksaray'],
+  [107, 'Topkapı'],
+  [108, 'Merter'],
+  [109, 'Bakırköy'],
+  [110, 'Kadıköy'],
+  [111, 'Ayrılık Çeşmesi'],
+  [112, 'Üsküdar'],
+  [113, 'Altunizade'],
+  [114, 'Levent'],
+  [115, 'Gayrettepe'],
+  [116, 'Mecidiyeköy']
+];
+
+const istanbulLines = [
+  [101, 'M2 Emerald'],
+  [102, 'M1 Crimson'],
+  [103, 'M4 Azure'],
+  [104, 'M5 Violet'],
+  [105, 'Marmaray Gold'],
+  [106, 'Metrobus Orange']
+];
+
+const istanbulNetwork = {
+  101: [105, 104, 103, 102, 101, 115, 114],
+  102: [105, 106, 107, 108, 109],
+  103: [110, 111, 113, 116],
+  104: [112, 113, 116, 114],
+  105: [105, 112, 111, 110],
+  106: [107, 116, 115]
+};
+
+const londonStations = [
+  [201, 'Paddington'],
+  [202, 'Baker Street'],
+  [203, 'Oxford Circus'],
+  [204, 'Tottenham Court Road'],
+  [205, 'Holborn'],
+  [206, 'Liverpool Street'],
+  [207, "King's Cross"],
+  [208, 'Euston'],
+  [209, 'Camden Town'],
+  [210, 'Bank'],
+  [211, 'London Bridge'],
+  [212, 'Waterloo'],
+  [213, 'Victoria'],
+  [214, 'Westminster'],
+  [215, 'Green Park'],
+  [216, 'South Kensington'],
+  [217, "Earl's Court"],
+  [218, 'Notting Hill Gate'],
+  [219, 'Stratford'],
+  [220, 'Canary Wharf']
+];
+
+const londonLines = [
+  [201, 'Central Red'],
+  [202, 'Bakerloo Brown'],
+  [203, 'Victoria Cyan'],
+  [204, 'Northern Black'],
+  [205, 'Jubilee Silver'],
+  [206, 'District Green'],
+  [207, 'Circle Gold'],
+  [208, 'Piccadilly Blue']
+];
+
+const londonNetwork = {
+  201: [218, 201, 202, 203, 204, 205, 206, 219],
+  202: [201, 202, 203, 214, 212],
+  203: [209, 208, 203, 215, 213],
+  204: [209, 208, 207, 205, 210, 211],
+  205: [202, 214, 212, 211, 220, 219],
+  206: [217, 216, 213, 214, 210],
+  207: [218, 201, 202, 207, 206, 210, 214, 213, 216, 217],
+  208: [217, 216, 215, 203, 204, 207]
 };
 
 const events = [
@@ -88,26 +173,34 @@ async function createTables() {
     name TEXT UNIQUE
   )`);
   await run(`CREATE TABLE IF NOT EXISTS line_stations (
-    line_id INTEGER,
-    station_id INTEGER,
-    order_idx INTEGER,
-    FOREIGN KEY(line_id) REFERENCES lines(id),
-    FOREIGN KEY(station_id) REFERENCES stations(id)
+    line_id INTEGER NOT NULL,
+    station_id INTEGER NOT NULL,
+    order_idx INTEGER NOT NULL CHECK(order_idx >= 0),
+    PRIMARY KEY(line_id, station_id),
+    UNIQUE(line_id, order_idx),
+    FOREIGN KEY(line_id) REFERENCES lines(id) ON DELETE CASCADE,
+    FOREIGN KEY(station_id) REFERENCES stations(id) ON DELETE CASCADE
   )`);
   await run(`CREATE TABLE IF NOT EXISTS connections (
-    station1 INTEGER,
-    station2 INTEGER,
-    line_id INTEGER
+    station1 INTEGER NOT NULL,
+    station2 INTEGER NOT NULL,
+    line_id INTEGER NOT NULL,
+    PRIMARY KEY(station1, station2, line_id),
+    CHECK(station1 <> station2),
+    FOREIGN KEY(station1) REFERENCES stations(id) ON DELETE CASCADE,
+    FOREIGN KEY(station2) REFERENCES stations(id) ON DELETE CASCADE,
+    FOREIGN KEY(line_id) REFERENCES lines(id) ON DELETE CASCADE
   )`);
   await run(`CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    description TEXT,
-    effect INTEGER
+    description TEXT NOT NULL,
+    effect INTEGER NOT NULL CHECK(effect BETWEEN -4 AND 4)
   )`);
   await run(`CREATE TABLE IF NOT EXISTS games (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    score INTEGER,
+    user_id INTEGER NOT NULL,
+    score INTEGER NOT NULL CHECK(score >= 0),
+    level TEXT NOT NULL DEFAULT 'Ankara',
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id)
   )`);
@@ -164,14 +257,41 @@ async function seedEvents() {
 }
 
 async function seedRanking() {
-  const row = await get('SELECT COUNT(*) AS count FROM games');
-  if (row.count > 0) return;
-  await run('INSERT INTO games (user_id, score) VALUES (2, 10), (3, 12)');
+  const ankara = await get("SELECT COUNT(*) AS count FROM games WHERE level = 'Ankara'");
+  if (ankara.count === 0) {
+    await run(`
+      INSERT INTO games (user_id, score, level) VALUES
+        (2, 22, 'Ankara'),
+        (2, 27, 'Ankara'),
+        (3, 18, 'Ankara'),
+        (3, 24, 'Ankara')
+    `);
+  }
+  const istanbul = await get("SELECT COUNT(*) AS count FROM games WHERE level = 'Istanbul'");
+  if (istanbul.count === 0) {
+    await run(`
+      INSERT INTO games (user_id, score, level) VALUES
+        (2, 19, 'Istanbul'),
+        (2, 25, 'Istanbul'),
+        (3, 21, 'Istanbul'),
+        (3, 23, 'Istanbul')
+    `);
+  }
+  const london = await get("SELECT COUNT(*) AS count FROM games WHERE level = 'London'");
+  if (london.count === 0) {
+    await run(`
+      INSERT INTO games (user_id, score, level) VALUES
+        (2, 18, 'London'),
+        (2, 22, 'London'),
+        (3, 17, 'London'),
+        (3, 20, 'London')
+    `);
+  }
 }
 
-async function seedAnkaraNetwork() {
+async function seedNetworks() {
   const version = await get("SELECT value FROM app_meta WHERE key = 'network_version'");
-  if (version?.value === ANKARA_NETWORK_VERSION) return;
+  if (version?.value === NETWORK_VERSION) return;
 
   await run('BEGIN TRANSACTION');
   try {
@@ -180,31 +300,33 @@ async function seedAnkaraNetwork() {
     await run('DELETE FROM lines');
     await run('DELETE FROM stations');
 
-    for (const station of stations) {
+    for (const station of [...ankaraStations, ...istanbulStations, ...londonStations]) {
       await run('INSERT INTO stations (id, name) VALUES (?, ?)', station);
     }
-    for (const line of lines) {
+    for (const line of [...ankaraLines, ...istanbulLines, ...londonLines]) {
       await run('INSERT INTO lines (id, name) VALUES (?, ?)', line);
     }
-    for (const [lineId, stationIds] of Object.entries(network)) {
-      for (let index = 0; index < stationIds.length; index += 1) {
-        const stationId = stationIds[index];
-        await run(
-          'INSERT INTO line_stations (line_id, station_id, order_idx) VALUES (?, ?, ?)',
-          [Number(lineId), stationId, index]
-        );
-        if (index > 0) {
+    for (const network of [ankaraNetwork, istanbulNetwork, londonNetwork]) {
+      for (const [lineId, stationIds] of Object.entries(network)) {
+        for (let index = 0; index < stationIds.length; index += 1) {
+          const stationId = stationIds[index];
           await run(
-            'INSERT INTO connections (station1, station2, line_id) VALUES (?, ?, ?)',
-            [stationIds[index - 1], stationId, Number(lineId)]
+            'INSERT INTO line_stations (line_id, station_id, order_idx) VALUES (?, ?, ?)',
+            [Number(lineId), stationId, index]
           );
+          if (index > 0) {
+            await run(
+              'INSERT INTO connections (station1, station2, line_id) VALUES (?, ?, ?)',
+              [stationIds[index - 1], stationId, Number(lineId)]
+            );
+          }
         }
       }
     }
     await run(
       `INSERT INTO app_meta (key, value) VALUES ('network_version', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      [ANKARA_NETWORK_VERSION]
+      [NETWORK_VERSION]
     );
     await run('COMMIT');
   } catch (err) {
@@ -219,8 +341,8 @@ export const dbReady = (async () => {
   await seedUsers();
   await seedEvents();
   await seedRanking();
-  await seedAnkaraNetwork();
-  console.log('Compact Ankara-inspired network is ready.');
+  await seedNetworks();
+  console.log('Ankara, Istanbul and London networks are ready.');
 })().catch(err => {
   console.error('Database initialization failed:', err);
   throw err;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './app.css';
 
@@ -8,6 +8,7 @@ const API = 'http://localhost:3001/api';
 
 function MainMenu({ onLogin }) {
   const [showLogin, setShowLogin] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
   const [username, setUsername] = useState('user1');
   const [password, setPassword] = useState('password1');
   const [error, setError] = useState('');
@@ -41,6 +42,7 @@ function MainMenu({ onLogin }) {
       {!showLogin ? (
         <section className="menu-actions">
           <button className="menu-primary" onClick={() => setShowLogin(true)}>START SHIFT</button>
+          <button className="menu-secondary" onClick={() => setShowInstructions(true)}>HOW TO PLAY</button>
           <div className="menu-status"><i /> CONTROL SYSTEM ONLINE</div>
           <small>WASD TO MOVE · MOUSE TO LOOK · ESC TO RELEASE</small>
         </section>
@@ -66,11 +68,53 @@ function MainMenu({ onLogin }) {
         </form>
       )}
 
+      {showInstructions && (
+        <section className="instructions-overlay">
+          <article>
+            <header><span>OPERATOR HANDBOOK</span><button onClick={() => setShowInstructions(false)}>×</button></header>
+            <h2>How to Play</h2>
+            <ol>
+              <li><b>Study.</b> Memorize the fixed network, line colors, and interchange stations.</li>
+              <li><b>Plan.</b> You receive random start and destination stations. The lines disappear and the 90-second timer starts.</li>
+              <li><b>Build.</b> Select segments from the complete list in sequence. The interface allows mistakes; validation happens only after submission.</li>
+              <li><b>Execute.</b> A random event changes your 20-coin balance on every travelled segment.</li>
+              <li><b>Score.</b> Reach the destination with as many coins as possible. Invalid routes score zero.</li>
+            </ol>
+            <p>The underground map is available only to authenticated operators.</p>
+            <button className="menu-primary" onClick={() => setShowInstructions(false)}>RETURN TO MENU</button>
+          </article>
+        </section>
+      )}
+
       <footer className="menu-footer">
         <span>LR-CTRL / 2026</span>
         <span>POLITECNICO DI TORINO</span>
       </footer>
     </main>
+  );
+}
+
+function CabinLayout({ onLogout }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const rankingOpen = location.pathname === '/ranking';
+  const gameOpen = location.pathname === '/game';
+
+  return (
+    <>
+      <React.Suspense fallback={<main className="boot-screen"><span>LOADING DRIVER CABIN</span></main>}>
+        <ControlRoom3D
+          onLogout={onLogout}
+          rankingOpen={rankingOpen}
+          gameOpen={gameOpen}
+          onOpenRanking={() => navigate('/ranking')}
+          onCloseRanking={() => navigate('/hub')}
+          onOpenGame={() => navigate('/game')}
+          onCloseGame={() => navigate('/hub')}
+        />
+      </React.Suspense>
+      <Outlet />
+    </>
   );
 }
 
@@ -81,7 +125,7 @@ function AppRoutes() {
 
   useEffect(() => {
     axios.get(`${API}/check-login`, { withCredentials: true })
-      .then(response => setUser(response.data))
+      .then(response => setUser(response.data.authenticated ? response.data : null))
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
@@ -98,14 +142,11 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Navigate to={user ? '/hub' : '/login'} replace />} />
       <Route path="/login" element={user ? <Navigate to="/hub" replace /> : <MainMenu onLogin={setUser} />} />
-      <Route
-        path="/hub"
-        element={user ? (
-          <React.Suspense fallback={<main className="boot-screen"><span>LOADING DRIVER CABIN</span></main>}>
-            <ControlRoom3D onLogout={logout} />
-          </React.Suspense>
-        ) : <Navigate to="/login" replace />}
-      />
+      <Route element={user ? <CabinLayout onLogout={logout} /> : <Navigate to="/login" replace />}>
+        <Route path="/hub" element={null} />
+        <Route path="/game" element={null} />
+        <Route path="/ranking" element={null} />
+      </Route>
       <Route path="*" element={<Navigate to={user ? '/hub' : '/login'} replace />} />
     </Routes>
   );
